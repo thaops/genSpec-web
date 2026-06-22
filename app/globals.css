@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Blueprint accent — blue → cyan */
+  --color-accent-50: #ecfeff;
+  --color-accent-100: #cffafe;
+  --color-accent-200: #a5f3fc;
+  --color-accent-300: #67e8f9;
+  --color-accent-400: #22d3ee;
+  --color-accent-500: #3b82f6;
+  --color-accent-600: #2563eb;
+  --color-accent-700: #1d4ed8;
+  --color-accent-800: #1e40af;
+  --color-accent-900: #1e3a8a;
+
+  /* Blueprint neutrals — remap zinc to deep navy/slate (recolors the whole app) */
+  --color-zinc-50: #f3f6fb;
+  --color-zinc-100: #e6edf7;
+  --color-zinc-200: #cdd8e8;
+  --color-zinc-300: #aebacd;
+  --color-zinc-400: #8a99b0;
+  --color-zinc-500: #6b7d99;
+  --color-zinc-600: #475a78;
+  --color-zinc-700: #2a3a57;
+  --color-zinc-800: #1b2740;
+  --color-zinc-850: #15203a;
+  --color-zinc-900: #111a2e;
+  --color-zinc-950: #0b1220;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(
+      ellipse 70% 55% at 50% -12%,
+      rgba(34, 211, 238, 0.1),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 90% 70% at 50% -10%,
+      rgba(59, 130, 246, 0.14),
+      transparent 62%
+    ),
+    #0b1220;
+  color: #e6edf7;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Thin, premium scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3a57 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a3a57;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #3b4d6e;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes rowIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(56, 189, 248, 0);
+  }
+}
+@keyframes textShimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes floatGlow {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateY(-6px) scale(1.04);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease both;
+}
+.animate-slide-up {
+  animation: slideUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-row-in {
+  animation: rowIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-toast-in {
+  animation: toastIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-pulse-glow {
+  animation: pulseGlow 1.8s ease-in-out infinite;
+}
+.animate-float-glow {
+  animation: floatGlow 4s ease-in-out infinite;
+}
+
+/* Shimmering text (for "thinking" status lines). */
+.text-shimmer {
+  background: linear-gradient(
+    100deg,
+    rgba(103, 232, 249, 0.5) 20%,
+    rgba(186, 230, 253, 1) 50%,
+    rgba(103, 232, 249, 0.5) 80%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: textShimmer 2.4s linear infinite;
+}
+
+/* Blinking typewriter caret. */
+.type-caret::after {
+  content: "▋";
+  margin-left: 1px;
+  animation: blink 1s step-end infinite;
+  color: rgba(34, 211, 238, 0.95);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-up,
+  .animate-row-in,
+  .animate-fade-in {
+    animation: none !important;
+  }
+  .text-shimmer {
+    animation: none;
+  }
+  .type-caret::after {
+    animation: none;
+    content: "";
+  }
+  .animate-float-glow,
+  .animate-pulse-glow {
+    animation: none;
+  }
+}
