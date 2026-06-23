@@ -1,6 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+// Streaming-aware typewriter. Unlike useTypewriter (which restarts when `text`
+// changes), this treats `target` as a GROWING string and smoothly catches up to
+// it, revealing a few chars per tick. The further behind it is, the faster it
+// reveals — so it never lags far behind a fast model, yet still feels "typed".
+// Resets to empty when `target` shrinks (e.g. a new turn cleared it).
+export function useSmoothStream(
+  target: string,
+  { speed = 16, minChars = 2 }: { speed?: number; minChars?: number } = {}
+): string {
+  const reduced = usePrefersReducedMotion();
+  const [shown, setShown] = useState("");
+  const targetRef = useRef(target);
+  targetRef.current = target;
+
+  // Hard reset when the stream is cleared or replaced with a non-extending value.
+  useEffect(() => {
+    if (!target || !target.startsWith(shown)) setShown(target && reduced ? target : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, reduced]);
+
+  useEffect(() => {
+    if (reduced) return;
+    const timer = window.setInterval(() => {
+      setShown((cur) => {
+        const tgt = targetRef.current;
+        if (cur.length >= tgt.length) return cur;
+        const behind = tgt.length - cur.length;
+        const step = Math.max(minChars, Math.round(behind / 6));
+        return tgt.slice(0, cur.length + step);
+      });
+    }, speed);
+    return () => window.clearInterval(timer);
+  }, [reduced, speed, minChars]);
+
+  return reduced ? target : shown;
+}
 
 // Respect the user's reduced-motion preference (gates heavy animations).
 export function usePrefersReducedMotion(): boolean {

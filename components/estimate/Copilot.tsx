@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
 import type { TKey } from "@/lib/i18n/dictionaries";
 import { useToast } from "@/components/ui/Toast";
+import { useSmoothStream } from "@/lib/hooks";
 import { CopilotComposer } from "./CopilotComposer";
 import { LiveTimeline, type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
@@ -83,6 +84,12 @@ export function Copilot({
   const idRef = useRef(0);
   const estimateRef = useRef(estimate);
 
+  // Smoothly "type out" the streamed reasoning, then show only the tail so the
+  // DOM stays small. This makes any model (even bursty free ones) feel live.
+  const typed = useSmoothStream(liveText);
+  const typedTail = typed.length > 1400 ? "…" + typed.slice(-1400) : typed;
+  const caretActive = streaming && typed.length < liveText.length;
+
   const nextId = () => ++idRef.current;
 
   useEffect(() => {
@@ -138,7 +145,8 @@ export function Copilot({
       await api.copilotStream(estimate.id, message, sent, {
         signal: ctrl.signal,
         onToken: (text: string) => {
-          setLiveText((prev) => (prev + text).slice(-1600));
+          // Append-only so the typewriter can smoothly catch up to the growing text.
+          setLiveText((prev) => prev + text);
         },
         onStep: (s: CopilotStep) => {
           setSteps((prev) => [...prev, { text: s.text, at: clockNow() }]);
@@ -287,16 +295,29 @@ export function Copilot({
             })}
 
             {streaming && (
-              <>
-                {liveText.trim() && (
-                  <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/40 p-3">
-                    <p className="type-caret whitespace-pre-wrap text-[12.5px] leading-relaxed text-zinc-400">
-                      {liveText}
-                    </p>
-                  </div>
+              <div className="animate-slide-up space-y-2 rounded-xl border border-accent-500/20 bg-zinc-900/50 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex gap-0.5">
+                    <Dot delay="0ms" />
+                    <Dot delay="160ms" />
+                    <Dot delay="320ms" />
+                  </span>
+                  <span className="text-shimmer text-[12px] font-medium">
+                    {t("copilot.thinking")}
+                  </span>
+                </div>
+                {typedTail.trim() && (
+                  <p
+                    className={cn(
+                      "whitespace-pre-wrap text-[12.5px] leading-relaxed text-zinc-300",
+                      caretActive && "type-caret"
+                    )}
+                  >
+                    {typedTail}
+                  </p>
                 )}
                 <LiveTimeline steps={steps} streaming={streaming} />
-              </>
+              </div>
             )}
           </div>
 
@@ -366,6 +387,15 @@ function TabButton({
         </span>
       )}
     </button>
+  );
+}
+
+function Dot({ delay }: { delay: string }) {
+  return (
+    <span
+      className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-400"
+      style={{ animationDelay: delay, animationDuration: "1s" }}
+    />
   );
 }
 
