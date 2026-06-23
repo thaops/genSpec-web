@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { CostDonut, type DonutSlice } from "./CostDonut";
 import { TopCostDrivers } from "./TopCostDrivers";
 import { PipelineStatus } from "./PipelineStatus";
+import { ValidationPanel } from "../transparency/ValidationPanel";
 
 const iconBase = {
   viewBox: "0 0 24 24",
@@ -223,18 +224,29 @@ export function OverviewDashboard({ estimate }: { estimate: Estimate }) {
           </Card>
         </div>
 
-        {/* Pipeline status */}
-        <Card className="mt-3 p-4">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h3 className="text-sm font-semibold text-zinc-100">
-              {t("overview.pipeline")}
-            </h3>
-            <span className="text-[11px] text-zinc-500">
-              {t("overview.pipelineSub")}
-            </span>
-          </div>
-          <PipelineStatus estimate={estimate} />
-        </Card>
+        {/* Validation self-check + Pipeline status */}
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <Card className="p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h3 className="text-sm font-semibold text-zinc-100">
+                {t("validation.title")}
+              </h3>
+            </div>
+            <ValidationPanel report={estimate.validation} />
+          </Card>
+
+          <Card className="p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h3 className="text-sm font-semibold text-zinc-100">
+                {t("overview.pipeline")}
+              </h3>
+              <span className="text-[11px] text-zinc-500">
+                {t("overview.pipelineSub")}
+              </span>
+            </div>
+            <PipelineStatus estimate={estimate} />
+          </Card>
+        </div>
       </div>
     </div>
   );

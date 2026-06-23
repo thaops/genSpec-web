@@ -31,12 +31,21 @@ export interface ProjectInfo {
   note?: string;
 }
 
+export type SourceType =
+  | "government"
+  | "supplier"
+  | "market"
+  | "forum"
+  | "ai_estimate"
+  | "manual";
+
 // Traceable provenance for a price (sheet 05/06/07 source column).
 export interface PriceSource {
   name?: string;
   date?: string;
   region?: string;
-  confidence?: number; // 0-100
+  type?: SourceType; // loại nguồn — drives reliability deterministically
+  confidence?: number; // 0-100 (derived from type)
   url?: string;
 }
 
@@ -169,13 +178,110 @@ export interface ActivityEntry {
   detail?: string; // e.g. "17.000 → 22.000"
 }
 
-// Confidence per section + overall (0-100).
+// Confidence per section + overall (0-100), with the basis for the score.
 export interface Confidence {
   boq?: number;
   materials?: number;
   labor?: number;
   equipment?: number;
   overall?: number;
+  reasons?: string[]; // căn cứ tăng độ tin (vd "Diện tích sàn đầy đủ")
+  missing?: string[]; // dữ liệu còn thiếu (vd "Bản vẽ kết cấu")
+  uncertaintyPct?: number; // sai số ước lượng ±%
+}
+
+// ---------- Trace engine (auditable derivation per BOQ item) ----------
+
+export interface QuantityTraceLine {
+  takeoffId: string;
+  note?: string;
+  group?: string;
+  formula?: string;
+  dims?: { length?: number; width?: number; height?: number; count?: number };
+  quantity: number;
+}
+
+export interface UnitPriceComponentTrace {
+  kind: ResourceKind;
+  ref: string;
+  name: string;
+  unit?: string;
+  norm: number;
+  price: number;
+  amount: number;
+  source?: PriceSource;
+}
+
+export interface TraceItem {
+  code: string;
+  name: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  material: number;
+  labor: number;
+  machine: number;
+  total: number;
+  assumptions: string[];
+  quantityTrace: QuantityTraceLine[];
+  components: UnitPriceComponentTrace[];
+}
+
+// ---------- Validation & consistency (AI self-check) ----------
+
+export interface Benchmark {
+  metric: "total" | "perM2";
+  low: number;
+  high: number;
+  mid?: number;
+  source?: { name?: string; url?: string; date?: string };
+  basis?: string;
+}
+
+export type ValidationStatus = "reasonable" | "warning" | "unrealistic";
+
+export type ValidationArea =
+  | "quantity"
+  | "unitPrice"
+  | "total"
+  | "missing"
+  | "benchmark"
+  | "source";
+
+export interface ValidationFinding {
+  id: string;
+  severity: "info" | "warn" | "error";
+  area: ValidationArea;
+  title: string;
+  detail: string;
+  refCode?: string;
+  expected?: string;
+  actual?: string;
+  deviationPct?: number;
+}
+
+export type ConsistencyKind =
+  | "orphan_takeoff"
+  | "unresolved_ref"
+  | "empty_analysis"
+  | "zero_price"
+  | "sum_mismatch";
+
+export interface ConsistencyIssue {
+  id: string;
+  severity: "warn" | "error";
+  kind: ConsistencyKind;
+  message: string;
+  refCode?: string;
+}
+
+export interface ValidationReport {
+  status: ValidationStatus;
+  score: number; // 0-100
+  benchmark?: Benchmark;
+  deviationPct?: number;
+  findings: ValidationFinding[];
+  consistency: ConsistencyIssue[];
 }
 
 // Preview of what a proposal would change before it is applied.
@@ -218,6 +324,8 @@ export interface Estimate {
   materialSummary: MaterialSummaryRow[];
   costSummary: CostSummary;
   costs: Costs;
+  validation: ValidationReport; // self-check (status, score, benchmark, findings, consistency)
+  trace: TraceItem[]; // auditable derivation per BOQ line
   activityLog: ActivityEntry[]; // last 100
   createdAt: string;
   updatedAt: string;
@@ -323,6 +431,8 @@ export interface CopilotProposal {
   actions: Action[];
   sources: CopilotSource[];
   preview: ProposalPreview;
+  validation: ValidationReport; // AI self-check on the prospective state
+  trace: TraceItem[]; // auditable derivation per BOQ line (prospective state)
 }
 
 export interface ApplyActionsResponse {

@@ -2,7 +2,17 @@
 
 import { cn, formatDate } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
-import type { PriceSource } from "@/lib/types";
+import type { TKey } from "@/lib/i18n/dictionaries";
+import type { PriceSource, SourceType } from "@/lib/types";
+
+const TYPE_KEY: Record<SourceType, TKey> = {
+  government: "transparency.srcGovernment",
+  supplier: "transparency.srcSupplier",
+  market: "transparency.srcMarket",
+  forum: "transparency.srcForum",
+  ai_estimate: "transparency.srcAiEstimate",
+  manual: "transparency.srcManual",
+};
 import {
   InfoIcon,
   ExternalLinkIcon,
@@ -81,6 +91,10 @@ export function SourcePopover({ source }: { source?: PriceSource }) {
 
         <Row label={t("transparency.source")} value={source!.name} />
         <Row
+          label={t("transparency.sourceType")}
+          value={source!.type ? t(TYPE_KEY[source!.type]) : undefined}
+        />
+        <Row
           label={t("transparency.updated")}
           value={source!.date ? formatDate(source!.date) : undefined}
         />
@@ -90,10 +104,15 @@ export function SourcePopover({ source }: { source?: PriceSource }) {
           <div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-500">
-                {t("transparency.confidence")}
+                {t("transparency.reliability")}
               </span>
               <span className={cn("font-mono font-medium", tone.text)}>
-                {conf}%
+                {conf >= 90
+                  ? t("transparency.relHigh")
+                  : conf >= 70
+                    ? t("transparency.relMid")
+                    : t("transparency.relLow")}{" "}
+                · {conf}%
               </span>
             </div>
             <div className="mt-1 h-1 overflow-hidden rounded-full bg-zinc-800">

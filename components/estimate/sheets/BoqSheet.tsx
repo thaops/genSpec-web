@@ -4,6 +4,7 @@ import { cn, formatNum, formatVnd } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { SheetShell, HeadRow, H, type SheetProps } from "./shell";
 import { QuantityBreakdown } from "../transparency/QuantityBreakdown";
+import { CostTrace } from "../transparency/CostTrace";
 
 const COLS =
   "grid grid-cols-[56px_130px_minmax(200px,1fr)_64px_96px_120px_140px]";
@@ -58,8 +59,8 @@ export function BoqSheet({ estimate }: SheetProps) {
                 className="text-zinc-300"
               />
             </div>
-            <div className="px-2 py-1.5 text-right font-mono text-xs text-zinc-400">
-              {formatNum(r.unitPrice)}
+            <div className="flex justify-end px-2 py-1.5 text-right">
+              <CostTrace row={r} estimate={estimate} className="text-zinc-400" />
             </div>
             <div className="px-2 py-1.5 text-right font-mono text-xs font-medium text-zinc-100">
               {formatNum(r.total)}

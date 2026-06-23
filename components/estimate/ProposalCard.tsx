@@ -13,7 +13,9 @@ import {
   ChevronDownIcon,
 } from "@/components/ui/icons";
 import { ThinkingTrace } from "./ThinkingTrace";
-import { ConfidenceBadges } from "./ConfidenceBadges";
+import { ConfidenceCard } from "./ConfidenceCard";
+import { ValidationPanel } from "./transparency/ValidationPanel";
+import { TracePanel } from "./transparency/TracePanel";
 
 const KIND_LABEL: Record<string, TKey> = {
   material: "copilot.countMaterial",
@@ -46,6 +48,7 @@ export function ProposalCard({
 }: Props) {
   const { t } = useT();
   const [showDiffs, setShowDiffs] = useState(false);
+  const [showWhy, setShowWhy] = useState(false);
   const { shown, done } = useTypewriter(proposal.message, { enabled: fresh });
 
   const preview = proposal.preview;
@@ -84,12 +87,48 @@ export function ProposalCard({
           {fresh && !done ? shown : proposal.message}
         </p>
 
-        {/* Confidence */}
-        {proposal.confidence && (
+        {/* Validation self-check (status + benchmark) — shown BEFORE apply */}
+        {proposal.validation && (
           <div className="mt-2.5">
-            <ConfidenceBadges confidence={proposal.confidence} />
+            <ValidationPanel report={proposal.validation} compact />
           </div>
         )}
+
+        {/* Confidence with basis */}
+        {proposal.confidence && (
+          <div className="mt-2.5">
+            <ConfidenceCard confidence={proposal.confidence} />
+          </div>
+        )}
+
+        {/* "Why this result?" — full self-critique: findings + consistency */}
+        {proposal.validation &&
+          (proposal.validation.findings.length > 0 ||
+            proposal.validation.consistency.length > 0) && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setShowWhy((v) => !v)}
+                className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 transition-colors hover:text-accent-300"
+              >
+                <ChevronDownIcon
+                  className={cn(
+                    "h-3 w-3 transition-transform",
+                    showWhy ? "rotate-180" : "rotate-0"
+                  )}
+                />
+                {showWhy ? t("copilot.whyHide") : t("copilot.whyShow")}
+              </button>
+              {showWhy && (
+                <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
+                  <ValidationPanel report={proposal.validation} />
+                </div>
+              )}
+            </div>
+          )}
+
+        {/* Trace — quantity derivation + price sources, BEFORE applying */}
+        <TracePanel trace={proposal.trace} />
 
         {/* Count chips */}
         {preview && preview.counts?.length > 0 && (

@@ -10,6 +10,24 @@ export interface TimelineStep {
   at: string; // HH:MM:SS
 }
 
+// Pick a glyph for a reasoning step from keywords — gives the timeline
+// a scannable, "alive" feel instead of identical bullet points.
+function stepIcon(text: string): string {
+  const s = text.toLowerCase();
+  if (/phân tích|yêu cầu|loại công trình/.test(s)) return "🔍";
+  if (/bóc tách|khối lượng(?!.*bê)/.test(s)) return "📐";
+  if (/bê ?tông/.test(s)) return "🧱";
+  if (/thép|cốt thép/.test(s)) return "🦾";
+  if (/nhân công|lương|chi phí nc/.test(s)) return "👷";
+  if (/giá|vật liệu|vật tư|tra cứu|thu thập/.test(s)) return "💰";
+  if (/nguồn|tham chiếu/.test(s)) return "🔗";
+  if (/benchmark|suất đầu tư|đối chiếu|thị trường/.test(s)) return "📊";
+  if (/kiểm tra|hợp lý|đồng bộ|tính hợp/.test(s)) return "🧪";
+  if (/hoàn thành|báo cáo|tổng hợp/.test(s)) return "✅";
+  if (/bản vẽ|ảnh|đọc/.test(s)) return "📄";
+  return "•";
+}
+
 // Realtime list of streamed reasoning steps. The last item is "current"
 // (pulsing) while `streaming` is true; earlier ones are completed (checkmark).
 export function LiveTimeline({
@@ -53,19 +71,22 @@ export function LiveTimeline({
               )}
             >
               {current ? (
-                <span className="absolute left-0 top-[3px] flex h-3.5 w-3.5 items-center justify-center">
+                <span className="absolute left-[-1px] top-[1px] flex h-4 w-4 items-center justify-center">
                   <span
                     className={cn(
-                      "absolute inline-flex h-3.5 w-3.5 rounded-full bg-accent-400/40",
+                      "absolute inline-flex h-4 w-4 rounded-full bg-accent-400/30",
                       !reduced && "animate-ping"
                     )}
                   />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-400" />
+                  <span className="relative text-[13px] leading-none">{stepIcon(s.text)}</span>
                 </span>
               ) : (
-                <CheckCircleIcon className="absolute left-0 top-[2px] h-3.5 w-3.5 text-emerald-400/80" />
+                <span className="absolute left-[-1px] top-[1px] text-[13px] leading-none">
+                  {stepIcon(s.text)}
+                </span>
               )}
-              <span className="min-w-0 flex-1">{s.text}</span>
+              <span className={cn("min-w-0 flex-1 pl-1", current && "font-medium")}>{s.text}</span>
+              {!current && <CheckCircleIcon className="mt-[3px] h-3 w-3 shrink-0 text-emerald-400/70" />}
               <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-600">
                 {s.at}
               </span>
