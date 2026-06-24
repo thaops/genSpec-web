@@ -35,13 +35,16 @@ export default function WorkbookEditor({
     let destroyed = false;
 
     async function init() {
-      const { createUniver } = await import("@univerjs/presets");
+      const { createUniver, LocaleType } = await import("@univerjs/presets");
       const { UniverSheetsCorePreset } = await import("@univerjs/preset-sheets-core");
       await import("@univerjs/preset-sheets-core/lib/index.css");
+      const enUS = (await import("@univerjs/preset-sheets-core/locales/en-US")).default;
 
       if (destroyed || !containerRef.current) return;
 
       const { univer, univerAPI } = createUniver({
+        locale: LocaleType.EN_US,
+        locales: { [LocaleType.EN_US]: enUS },
         presets: [
           UniverSheetsCorePreset({
             container: containerRef.current,
@@ -52,7 +55,22 @@ export default function WorkbookEditor({
       univerRef.current = univer;
       univerAPIRef.current = univerAPI;
 
-      // Build sheets map
+      univerAPI.toggleDarkMode(true);
+
+      // Read app's compiled CSS vars and set them as inline styles on :root
+      // (inline style always beats stylesheet, avoids Univer re-injection order issue)
+      const cs = getComputedStyle(document.documentElement);
+      const set = (k: string, src: string) => {
+        const v = cs.getPropertyValue(src).trim();
+        if (v) document.documentElement.style.setProperty(k, v);
+      };
+      [50, 100, 200, 300, 400, 500, 600, 700, 800, 900].forEach((n) => {
+        set(`--univer-gray-${n}`, `--color-zinc-${n}`);
+      });
+      set("--univer-primary-400", "--color-accent-400");
+      set("--univer-primary-500", "--color-accent-500");
+      set("--univer-primary-600", "--color-accent-600");
+
       const sheets: Record<string, any> = {};
       const sheetOrder: string[] = [];
 
@@ -83,7 +101,6 @@ export default function WorkbookEditor({
       const wb = univerAPI.getActiveWorkbook();
       if (!wb) return;
 
-      // Set active sheet
       if (activeSheetId) {
         const target = wb.getSheetBySheetId(activeSheetId);
         if (target) wb.setActiveSheet(target);
@@ -126,7 +143,6 @@ export default function WorkbookEditor({
     };
   }, [workbookData.id]);
 
-  // Sync active sheet from outside
   useEffect(() => {
     const wb = univerAPIRef.current?.getActiveWorkbook?.();
     if (!wb || !activeSheetId) return;
@@ -137,7 +153,6 @@ export default function WorkbookEditor({
     }
   }, [activeSheetId]);
 
-  // Highlight findings
   useEffect(() => {
     if (!findings?.length) return;
     const wb = univerAPIRef.current?.getActiveWorkbook?.();
@@ -156,7 +171,7 @@ export default function WorkbookEditor({
   }, [findings, activeSheetId]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden border-t border-zinc-800">
       <div ref={containerRef} className="absolute inset-0" />
     </div>
   );
