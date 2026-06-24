@@ -35,10 +35,9 @@ export default function WorkbookEditor({
     let isDestroyed = false;
 
     async function initUniver() {
-      const { Univer, UniverInstanceType } = await import("@univerjs/core");
-      const { UniverDesignPlugin } = await import("@univerjs/design");
-      const { UniverEngineRenderPlugin } = await import("@univerjs/engine-render");
-      const { UniverEngineFormulaPlugin } = await import("@univerjs/engine-formula");
+      const { Univer } = await import("@univerjs/core");
+      const { UniverRenderEnginePlugin } = await import("@univerjs/engine-render");
+      const { UniverFormulaEnginePlugin } = await import("@univerjs/engine-formula");
       const { UniverSheetsPlugin } = await import("@univerjs/sheets");
       const { UniverSheetsUIPlugin } = await import("@univerjs/sheets-ui");
       const { UniverUIPlugin } = await import("@univerjs/ui");
@@ -50,18 +49,14 @@ export default function WorkbookEditor({
 
       if (isDestroyed) return;
 
-      const univer = new Univer({
-        theme: "dark",
-      });
+      const univer = new Univer();
 
-      univer.registerPlugin(UniverDesignPlugin);
-      univer.registerPlugin(UniverEngineRenderPlugin);
-      univer.registerPlugin(UniverEngineFormulaPlugin);
+      univer.registerPlugin(UniverRenderEnginePlugin);
+      univer.registerPlugin(UniverFormulaEnginePlugin);
       univer.registerPlugin(UniverUIPlugin, {
         container: containerRef.current!,
         header: true,
         footer: true,
-        sidebar: false,
       });
       univer.registerPlugin(UniverSheetsPlugin);
       univer.registerPlugin(UniverSheetsUIPlugin);
@@ -89,9 +84,8 @@ export default function WorkbookEditor({
         };
       }
 
-      const instance = univer.createUniverInstance({
+      const instance = univer.createUniverSheet({
         id: workbookData.id || "workbook-default",
-        type: UniverInstanceType.UNIVER_SHEET,
         name: workbookData.name || "GenSpec Workbook",
         sheets: defaultSheets,
       });
@@ -103,31 +97,17 @@ export default function WorkbookEditor({
 
       if (activeWorkbook) {
         if (activeSheetId) {
-          const targetSheet = activeWorkbook.getSheetById(activeSheetId);
+          const targetSheet = activeWorkbook.getSheetBySheetId(activeSheetId);
           if (targetSheet) {
             activeWorkbook.setActiveSheet(targetSheet);
           }
         }
 
-        activeWorkbook.onSheetActiveChanged((sheet) => {
-          if (sheet) {
-            onActiveSheetChange(sheet.getSheetId());
+        activeWorkbook.onCommandExecuted(() => {
+          const currentSheet = activeWorkbook.getActiveSheet();
+          if (currentSheet) {
+            onActiveSheetChange(currentSheet.getSheetId());
           }
-        });
-
-        activeWorkbook.onSelectionChanged((selections) => {
-          if (selections && selections.length > 0) {
-            const range = selections[0].range;
-            onSelectionChange({
-              startRow: range.startRow,
-              startCol: range.startColumn,
-              endRow: range.endRow,
-              endCol: range.endColumn,
-            });
-          }
-        });
-
-        activeWorkbook.onValueChange(() => {
           const rawData = activeWorkbook.save();
           if (rawData && rawData.sheets) {
             const updatedSheets = Object.keys(rawData.sheets).map((key) => {
@@ -139,6 +119,18 @@ export default function WorkbookEditor({
               };
             });
             onDataChange(updatedSheets);
+          }
+        });
+
+        activeWorkbook.onSelectionChange((selections) => {
+          if (selections && selections.length > 0) {
+            const range = selections[0];
+            onSelectionChange({
+              startRow: range.startRow,
+              startCol: range.startColumn,
+              endRow: range.endRow,
+              endCol: range.endColumn,
+            });
           }
         });
       }
@@ -166,12 +158,14 @@ export default function WorkbookEditor({
     if (activeWorkbook && activeSheetId) {
       const activeSheet = activeWorkbook.getActiveSheet();
       if (activeSheet && activeSheet.getSheetId() !== activeSheetId) {
-        const targetSheet = activeWorkbook.getSheetById(activeSheetId);
+        const targetSheet = activeWorkbook.getSheetBySheetId(activeSheetId);
         if (targetSheet) {
           activeWorkbook.setActiveSheet(targetSheet);
         }
       }
     }
+  }, [activeSheetId]);
+
   useEffect(() => {
     if (!workbookInstanceRef.current || !univerRef.current || !findings || findings.length === 0) return;
     const { FUniver } = require("@univerjs/facade");

@@ -460,6 +460,7 @@ export type Action =
       newValue: string;
       entityId?: string;
     }
+  | { type: "set_sheets"; sheets: Sheet[] }
   | { type: "clear" };
 
 export interface CopilotSource {
