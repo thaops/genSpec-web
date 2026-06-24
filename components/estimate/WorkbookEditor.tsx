@@ -51,19 +51,22 @@ export default function WorkbookEditor({
 
       const univer = new Univer();
 
+      // Order matters: Sheets core must be registered before UI plugins
       univer.registerPlugin(UniverRenderEnginePlugin);
       univer.registerPlugin(UniverFormulaEnginePlugin);
+      univer.registerPlugin(UniverSheetsPlugin);
       univer.registerPlugin(UniverUIPlugin, {
         container: containerRef.current!,
         header: true,
         footer: true,
       });
-      univer.registerPlugin(UniverSheetsPlugin);
       univer.registerPlugin(UniverSheetsUIPlugin);
 
       univerRef.current = univer;
 
       const defaultSheets: Record<string, any> = {};
+      const sheetOrder: string[] = [];
+
       if (workbookData.sheets && workbookData.sheets.length > 0) {
         workbookData.sheets.forEach((s) => {
           defaultSheets[s.id] = {
@@ -73,6 +76,7 @@ export default function WorkbookEditor({
             rowCount: s.data?.rowCount ?? 100,
             columnCount: s.data?.columnCount ?? 20,
           };
+          sheetOrder.push(s.id);
         });
       } else {
         defaultSheets["sheet-1"] = {
@@ -82,13 +86,19 @@ export default function WorkbookEditor({
           columnCount: 20,
           cellData: {},
         };
+        sheetOrder.push("sheet-1");
       }
+
+      console.log("[WorkbookEditor] creating workbook, sheets:", sheetOrder.length);
 
       const instance = univer.createUniverSheet({
         id: workbookData.id || "workbook-default",
         name: workbookData.name || "GenSpec Workbook",
         sheets: defaultSheets,
+        sheetOrder,
       });
+
+      console.log("[WorkbookEditor] workbook created:", !!instance);
 
       workbookInstanceRef.current = instance;
 
@@ -136,7 +146,9 @@ export default function WorkbookEditor({
       }
     }
 
-    initUniver();
+    initUniver().catch((err) => {
+      console.error("[WorkbookEditor] init failed:", err);
+    });
 
     return () => {
       isDestroyed = true;
