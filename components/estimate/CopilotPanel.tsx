@@ -18,6 +18,9 @@ interface Props {
   // controlled collapse (so the page can auto-expand on pending prompt)
   collapsed: boolean;
   onCollapsedChange: (c: boolean) => void;
+  activeSheetId?: string;
+  selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number };
+  onFindings?: (findings: any[]) => void;
 }
 
 type Tab = "chat" | "activity";
@@ -29,6 +32,9 @@ export function CopilotPanel({
   controlRef,
   collapsed,
   onCollapsedChange,
+  activeSheetId,
+  selectedRange,
+  onFindings,
 }: Props) {
   const { t } = useT();
   const [working, setWorking] = useState(false);
@@ -134,6 +140,9 @@ export function CopilotPanel({
           tab={tab}
           onTabChange={setTab}
           controlRef={controlRef}
+          activeSheetId={activeSheetId}
+          selectedRange={selectedRange}
+          onFindings={onFindings}
         />
       </div>
     </aside>

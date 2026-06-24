@@ -181,16 +181,26 @@ export function ProposalCard({
             </button>
             {showDiffs && (
               <ul className="mt-1.5 space-y-1 rounded-lg border border-zinc-800 bg-zinc-950/50 p-2 font-mono text-[11px]">
-                {diffs.map((d, i) => (
-                  <li key={i} className="flex flex-wrap items-baseline gap-1.5">
-                    <span className="text-accent-300">{d.ref}</span>
-                    <span className="text-zinc-600">·</span>
-                    <span className="text-zinc-500">{d.field}</span>
-                    <span className="text-rose-300/90 line-through">{d.from}</span>
-                    <span className="text-zinc-600">→</span>
-                    <span className="text-emerald-300">{d.to}</span>
-                  </li>
-                ))}
+                {diffs.map((d, i) => {
+                  const isCellUpdate = d.ref.includes("->");
+                  let refDisplay = d.ref;
+                  if (isCellUpdate) {
+                    const parts = d.ref.split("->").map((p) => p.trim());
+                    if (parts.length === 2) {
+                      refDisplay = `Sheet "${parts[0]}" · Ô ${parts[1]}`;
+                    }
+                  }
+                  return (
+                    <li key={i} className="flex flex-wrap items-baseline gap-1.5">
+                      <span className="text-accent-300">{refDisplay}</span>
+                      <span className="text-zinc-600">·</span>
+                      <span className="text-zinc-500">{d.field}</span>
+                      <span className="text-rose-300/90 line-through">{d.from}</span>
+                      <span className="text-zinc-600">→</span>
+                      <span className="text-emerald-300">{d.to}</span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

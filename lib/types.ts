@@ -178,6 +178,24 @@ export interface ActivityEntry {
   detail?: string; // e.g. "17.000 → 22.000"
 }
 
+export interface PatchChange {
+  op: "update" | "insert" | "delete";
+  sheetId?: string;
+  cell?: string;
+  path?: string;
+  entityId?: string;
+  oldValue: any;
+  newValue: any;
+}
+
+export interface Patch {
+  id: string;
+  actor: "ai" | "manual";
+  timestamp: string;
+  description: string;
+  changes: PatchChange[];
+}
+
 // Confidence per section + overall (0-100), with the basis for the score.
 export interface Confidence {
   boq?: number;
@@ -307,6 +325,28 @@ export interface ProposalPreview {
   diffs: ProposalDiff[];
 }
 
+export interface Sheet {
+  id: string;
+  name: string;
+  metadata?: Record<string, any>;
+  data: any;
+}
+
+export interface EntityMap {
+  entityId: string;
+  sheetId: string;
+  semanticPath: string;
+}
+
+export interface Workbook {
+  id: string;
+  userId: string;
+  name: string;
+  sheets: Sheet[];
+  entityMaps?: EntityMap[];
+  activityLog?: ActivityEntry[];
+}
+
 export interface Estimate {
   id: string;
   userId: string;
@@ -319,6 +359,8 @@ export interface Estimate {
   labor: Labor[];
   equipment: Equipment[];
   markups: Markups;
+  sheets?: Sheet[];
+  entityMaps?: EntityMap[];
   // computed
   boq: BoqRow[];
   materialSummary: MaterialSummaryRow[];
@@ -327,6 +369,7 @@ export interface Estimate {
   validation: ValidationReport; // self-check (status, score, benchmark, findings, consistency)
   trace: TraceItem[]; // auditable derivation per BOQ line
   activityLog: ActivityEntry[]; // last 100
+  patchHistory?: Patch[];
   createdAt: string;
   updatedAt: string;
 }
@@ -409,6 +452,14 @@ export type Action =
       quantity?: number;
     }
   | { type: "delete_takeoff"; id: string }
+  | {
+      type: "update_cells";
+      sheetId: string;
+      cell: string;
+      oldValue: string;
+      newValue: string;
+      entityId?: string;
+    }
   | { type: "clear" };
 
 export interface CopilotSource {

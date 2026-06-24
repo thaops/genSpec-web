@@ -160,7 +160,9 @@ async function copilotStream(
   id: string,
   message: string,
   files: File[],
-  handlers: CopilotStreamHandlers
+  handlers: CopilotStreamHandlers,
+  activeSheetId?: string,
+  selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number }
 ): Promise<void> {
   const headers: Record<string, string> = { Accept: "text/event-stream" };
   const token = getToken();
@@ -169,6 +171,8 @@ async function copilotStream(
   const form = new FormData();
   form.append("message", message);
   for (const f of files) form.append("files", f);
+  if (activeSheetId) form.append("activeSheetId", activeSheetId);
+  if (selectedRange) form.append("selectedRange", JSON.stringify(selectedRange));
 
   let res: Response;
   try {
@@ -284,6 +288,12 @@ export const api = {
       body: { actions, source },
     }),
 
+  rollback: (id: string, patchId: string) =>
+    request<Estimate>(`/estimates/${id}/rollback`, {
+      method: "POST",
+      body: { patchId },
+    }),
+
   // ---------- Copilot (SSE stream) ----------
   // POSTs message+files multipart and reads the SSE stream via getReader().
   // Dispatches `step`/`proposal`/`error` events to the supplied handlers.
@@ -292,9 +302,11 @@ export const api = {
     id: string,
     message: string,
     files: File[],
-    handlers: CopilotStreamHandlers
+    handlers: CopilotStreamHandlers,
+    activeSheetId?: string,
+    selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number }
   ): Promise<void> =>
-    copilotStream(id, message, files, handlers),
+    copilotStream(id, message, files, handlers, activeSheetId, selectedRange),
 
   // ---------- Catalog ----------
   catalog: (q: string) =>

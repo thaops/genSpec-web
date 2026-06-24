@@ -17,7 +17,7 @@ import { useSmoothStream } from "@/lib/hooks";
 import { CopilotComposer } from "./CopilotComposer";
 import { LiveTimeline, type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
-import { ActivityLog } from "./ActivityLog";
+import { HistoryTimeline } from "./HistoryTimeline";
 
 type Tab = "chat" | "activity";
 
@@ -45,6 +45,9 @@ interface Props {
   tab: Tab;
   onTabChange: (t: Tab) => void;
   controlRef?: Ref<CopilotHandle>;
+  activeSheetId?: string;
+  selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number };
+  onFindings?: (findings: any[]) => void;
 }
 
 const SUGGESTIONS: TKey[] = [
@@ -70,6 +73,9 @@ export function Copilot({
   tab,
   onTabChange,
   controlRef,
+  activeSheetId,
+  selectedRange,
+  onFindings,
 }: Props) {
   const { t } = useT();
   const toast = useToast();
@@ -89,6 +95,8 @@ export function Copilot({
   const typed = useSmoothStream(liveText);
   const typedTail = typed.length > 1400 ? "…" + typed.slice(-1400) : typed;
   const caretActive = streaming && typed.length < liveText.length;
+
+  const [rollbackLoadingId, setRollbackLoadingId] = useState<string | undefined>();
 
   const nextId = () => ++idRef.current;
 
@@ -165,6 +173,7 @@ export function Copilot({
           setSteps([]);
           setLiveText("");
           if (p.confidence) onConfidence?.(p.confidence);
+          if ((p as any).findings) onFindings?.((p as any).findings);
         },
         onError: (m: string) => {
           toast.error(t("copilot.failed"), m);
@@ -173,7 +182,7 @@ export function Copilot({
             { id: nextId(), kind: "error", text: `⚠ ${m}` },
           ]);
         },
-      });
+      }, activeSheetId, selectedRange);
     } finally {
       setStreaming(false);
       setSteps([]);
@@ -225,6 +234,19 @@ export function Copilot({
     );
   }
 
+  async function handleRollback(patchId: string) {
+    setRollbackLoadingId(patchId);
+    try {
+      const res = await api.rollback(estimateRef.current.id, patchId);
+      onEstimateUpdated(res);
+      toast.success("Khôi phục thành công", "Bảng tính đã quay về phiên bản được chọn.");
+    } catch (err) {
+      toast.error("Khôi phục thất bại", (err as ApiError).message);
+    } finally {
+      setRollbackLoadingId(undefined);
+    }
+  }
+
   useImperativeHandle(
     controlRef,
     () => ({ send: (text: string, f: File[]) => send(text, f) }),
@@ -232,7 +254,7 @@ export function Copilot({
     [streaming, files, input]
   );
 
-  const activityCount = estimate.activityLog?.length ?? 0;
+  const activityCount = estimate.patchHistory?.length ?? 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -253,7 +275,11 @@ export function Copilot({
 
       {tab === "activity" ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <ActivityLog log={estimate.activityLog ?? []} />
+          <HistoryTimeline
+            history={estimate.patchHistory ?? []}
+            onRollback={handleRollback}
+            rollbackLoadingId={rollbackLoadingId}
+          />
         </div>
       ) : (
         <>
