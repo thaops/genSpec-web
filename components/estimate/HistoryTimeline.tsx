@@ -128,7 +128,7 @@ export function HistoryTimeline({
                 </button>
 
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="secondary"
                   onClick={() => onRollback(patch.id)}
                   disabled={!!rollbackLoadingId}
