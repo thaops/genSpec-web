@@ -312,6 +312,30 @@ export const api = {
   catalog: (q: string) =>
     request<CatalogItem[]>(`/catalog?q=${encodeURIComponent(q)}`),
 
+  // ---------- Import ----------
+  importExcel: async (id: string, file: File): Promise<Estimate> => {
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_URL}/estimates/${id}/import-excel`, {
+      method: "POST",
+      headers,
+      body: form,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      let msg = `Import failed (${res.status})`;
+      try {
+        const b = (await res.json()) as ApiErrorBody;
+        if (b?.message) msg = Array.isArray(b.message) ? b.message.join(", ") : b.message;
+      } catch { /* ignore */ }
+      throw new ApiError(msg, res.status);
+    }
+    return res.json() as Promise<Estimate>;
+  },
+
   // ---------- Export ----------
   exportF1: (id: string) => downloadBlob(`/estimates/${id}/export-f1`),
 };
