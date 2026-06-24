@@ -59,18 +59,10 @@ body {
 
 body {
   background:
-    radial-gradient(
-      ellipse 70% 55% at 50% -12%,
-      rgba(34, 211, 238, 0.1),
-      transparent 60%
-    ),
-    radial-gradient(
-      ellipse 90% 70% at 50% -10%,
-      rgba(59, 130, 246, 0.14),
-      transparent 62%
-    ),
-    #0b1220;
-  color: #e6edf7;
+    radial-gradient(ellipse 70% 55% at 50% -12%, rgba(34,211,238,0.10), transparent 60%),
+    radial-gradient(ellipse 90% 70% at 50% -10%, rgba(59,130,246,0.14), transparent 62%),
+    var(--color-zinc-950);
+  color: var(--color-zinc-100);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -78,35 +70,42 @@ body {
 
 html.light body {
   background:
-    radial-gradient(
-      ellipse 70% 55% at 50% -12%,
-      rgba(34, 211, 238, 0.06),
-      transparent 60%
-    ),
-    radial-gradient(
-      ellipse 90% 70% at 50% -10%,
-      rgba(59, 130, 246, 0.08),
-      transparent 62%
-    ),
-    #f0f4fb;
-  color: #111a2e;
+    radial-gradient(ellipse 70% 55% at 50% -12%, rgba(34,211,238,0.06), transparent 60%),
+    radial-gradient(ellipse 90% 70% at 50% -10%, rgba(59,130,246,0.08), transparent 62%),
+    var(--color-zinc-950);
+}
+
+/* ── Univer spreadsheet integration ──────────────────────────── */
+/*
+ * Primary mechanism: CSS variable inline-style on :root (WorkbookEditor.tsx).
+ * Do NOT add background-color overrides here — they conflict with Univer's
+ * dual-class pattern (base + dark:! override) by winning specificity wars.
+ * Font sync only.
+ */
+[data-univer] * { font-family: var(--font-sans) !important; }
+
+/* ── Light mode global text fixes ────────────────────────────── */
+/* text-white on plain content should become dark in light mode.
+   Exceptions (white on colored bg) still look fine as near-dark. */
+html.light .text-white {
+  color: var(--color-zinc-50) !important;
 }
 
 /* Thin, premium scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a3a57 transparent;
+  scrollbar-color: var(--color-zinc-700) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #2a3a57;
+  background: var(--color-zinc-700);
   border-radius: 8px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #3b4d6e;
+  background: var(--color-zinc-600);
 }
 
 @keyframes shimmer {

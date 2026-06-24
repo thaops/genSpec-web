@@ -23,7 +23,7 @@ export function Logo({
         </svg>
       </span>
       {showText && (
-        <span className="text-base font-semibold tracking-tight text-white">
+        <span className="text-base font-semibold tracking-tight text-zinc-50">
           GenSpec
         </span>
       )}

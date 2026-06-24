@@ -53,7 +53,7 @@ export default function HomePage() {
           <span className="animate-float-glow mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500/20 to-accent-600/10 text-accent-300 ring-1 ring-inset ring-accent-500/25">
             <SparkleIcon className="h-6 w-6" />
           </span>
-          <h1 className="text-balance text-3xl font-semibold tracking-tight text-white sm:text-[2rem]">
+          <h1 className="text-balance text-3xl font-semibold tracking-tight text-zinc-50 sm:text-[2rem]">
             {t("home.heading")}
           </h1>
           <p className="mx-auto mt-3 max-w-md text-pretty text-sm text-zinc-500">
