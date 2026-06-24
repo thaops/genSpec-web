@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  transpilePackages: [
+    "@univerjs/presets",
+    "@univerjs/preset-sheets-core",
+  ],
 };
 
 export default nextConfig;
