@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { Action, Estimate, Sheet } from "@/lib/types";
@@ -42,6 +42,17 @@ export default function EstimateEditorPage() {
   const [findings, setFindings] = useState<any[]>([]);
   const copilotRef = useRef<CopilotHandle>(null);
   const autoSentRef = useRef(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const handleImportExcel = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setCollapsed(false);
+    setTimeout(() => {
+      copilotRef.current?.send(`Import file Excel này vào dự toán`, [file]);
+    }, 350);
+  }, []);
 
   useEffect(() => {
     setCollapsed(readCopilotCollapsed());
@@ -232,13 +243,29 @@ export default function EstimateEditorPage() {
             <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
               Explorer
             </span>
-            <button
-              onClick={handleAddSheet}
-              className="text-zinc-500 hover:text-zinc-200 text-xs font-bold"
-            >
-              + New Sheet
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => importFileRef.current?.click()}
+                title="Import file Excel (.xlsx, .xls)"
+                className="text-xs text-zinc-500 hover:text-emerald-400 px-1"
+              >
+                📥
+              </button>
+              <button
+                onClick={handleAddSheet}
+                className="text-zinc-500 hover:text-zinc-200 text-xs font-bold"
+              >
+                +
+              </button>
+            </div>
           </div>
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={handleImportExcel}
+          />
           <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
             <div className="text-[11px] font-medium text-zinc-600 px-2 py-1 uppercase tracking-wider">
               📁 {estimate.name}

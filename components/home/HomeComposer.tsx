@@ -175,7 +175,7 @@ export function HomeComposer({ onSubmit, loading }: Props) {
           title={t("copilot.attachHint")}
         >
           <PaperclipIcon className="h-[18px] w-[18px]" />
-          <span className="hidden sm:inline">{t("copilot.attachHint")}</span>
+          <span className="hidden sm:inline">{t("copilot.attach")}</span>
         </button>
         <input
           ref={fileRef}
