@@ -12,6 +12,7 @@ import { DashboardIcon, PlusIcon, LogoutIcon } from "./ui/icons";
 import { Spinner } from "./ui/Button";
 import { LanguageToggle } from "./LanguageToggle";
 import { ProjectHistory } from "./home/ProjectHistory";
+import { NewProjectModal } from "./home/NewProjectModal";
 import { useToast } from "./ui/Toast";
 import { useT } from "@/lib/i18n/I18nProvider";
 import type { TKey } from "@/lib/i18n/dictionaries";
@@ -27,6 +28,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [estimates, setEstimates] = useState<EstimateListItem[] | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  async function createProject(name: string, file: File | null) {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const est = await api.createEstimate(name || t("home.defaultName"));
+      if (file) await api.importExcel(est.id, file);
+      setModalOpen(false);
+      router.push(`/estimate/${est.id}`);
+    } catch (err) {
+      toast.error(t("dashboard.createFailed"), (err as ApiError).message);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   useEffect(() => {
     if (ready && !isAuthenticated) {
@@ -70,6 +88,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     exact ? pathname === href : pathname.startsWith(href);
 
   return (
+    <>
+    <NewProjectModal
+      open={modalOpen}
+      loading={creating}
+      onClose={() => setModalOpen(false)}
+      onSubmit={createProject}
+    />
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-zinc-800/80 bg-zinc-950/40 px-4 py-5 lg:flex">
@@ -97,13 +122,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          <Link
-            href="/"
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
             className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 to-accent-500 px-3 py-2.5 text-sm font-medium text-white shadow-[0_8px_24px_-10px_rgba(37,99,235,0.8)] transition-opacity hover:opacity-90"
           >
             <PlusIcon className="h-4 w-4" />
             {t("nav.newProject")}
-          </Link>
+          </button>
         </nav>
 
         {/* Project history — under the control panel, scrolls, collapsible */}
@@ -179,6 +205,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8">{children}</main>
       </div>
     </div>
+    </>
   );
 }
 

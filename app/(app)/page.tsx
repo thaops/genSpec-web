@@ -8,7 +8,6 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import type { TKey } from "@/lib/i18n/dictionaries";
 import { setPendingPrompt } from "@/lib/pendingPrompt";
 import { HomeComposer } from "@/components/home/HomeComposer";
-import { NewProjectModal } from "@/components/home/NewProjectModal";
 import { SparkleIcon } from "@/components/ui/icons";
 
 const SUGGESTIONS: TKey[] = [
@@ -30,23 +29,6 @@ export default function HomePage() {
   const toast = useToast();
   const router = useRouter();
   const [creating, setCreating] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-
-  async function createProject(name: string, file: File | null) {
-    if (creating) return;
-    setCreating(true);
-    try {
-      const est = await api.createEstimate(name || t("home.defaultName"));
-      if (file) {
-        await api.importExcel(est.id, file);
-      }
-      router.push(`/estimate/${est.id}`);
-    } catch (err) {
-      toast.error(t("dashboard.createFailed"), (err as ApiError).message);
-      setCreating(false);
-      setModalOpen(false);
-    }
-  }
 
   async function start(message: string, files: File[]) {
     if (creating) return;
@@ -65,13 +47,6 @@ export default function HomePage() {
   }
 
   return (
-    <>
-    <NewProjectModal
-      open={modalOpen}
-      loading={creating}
-      onClose={() => setModalOpen(false)}
-      onSubmit={createProject}
-    />
     <div className="flex min-h-[70vh] flex-col justify-center">
       <div className="animate-slide-up mx-auto w-full max-w-2xl">
         <div className="mb-7 text-center">
@@ -88,7 +63,7 @@ export default function HomePage() {
 
         <HomeComposer onSubmit={start} loading={creating} />
 
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           {SUGGESTIONS.map((key) => (
             <button
               key={key}
@@ -100,17 +75,8 @@ export default function HomePage() {
               {t(key)}
             </button>
           ))}
-          <button
-            type="button"
-            disabled={creating}
-            onClick={() => setModalOpen(true)}
-            className="rounded-full border border-emerald-800/60 bg-emerald-900/20 px-3.5 py-1.5 text-[12.5px] text-emerald-400 transition-all hover:-translate-y-px hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:text-emerald-200 disabled:opacity-50"
-          >
-            📥 {t("home.newProject")}
-          </button>
         </div>
       </div>
     </div>
-    </>
   );
 }
