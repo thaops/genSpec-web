@@ -8,6 +8,8 @@ import { api, ApiError } from "@/lib/api";
 import type { EstimateListItem } from "@/lib/types";
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
+import { parseExcelFile } from "@/lib/excelParser";
+import { setPendingSheets } from "@/lib/pendingSheets";
 import { DashboardIcon, PlusIcon, LogoutIcon } from "./ui/icons";
 import { Spinner } from "./ui/Button";
 import { LanguageToggle } from "./LanguageToggle";
@@ -35,13 +37,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (creating) return;
     setCreating(true);
     try {
+      // 1. Parse Excel locally (fast, no network)
+      const sheets = file ? await parseExcelFile(file) : null;
+
+      // 2. Create estimate on server (just name, no file upload yet)
       const est = await api.createEstimate(name || t("home.defaultName"));
-      if (file) await api.importExcel(est.id, file);
+
+      // 3. If we have parsed sheets, stash them for the editor to pick up immediately
+      if (sheets && file) {
+        setPendingSheets({ estimateId: est.id, sheets, file });
+      }
+
       setModalOpen(false);
+      // 4. Navigate immediately — editor will render sheets from memory
       router.push(`/estimate/${est.id}`);
     } catch (err) {
       toast.error(t("dashboard.createFailed"), (err as ApiError).message);
-    } finally {
       setCreating(false);
     }
   }

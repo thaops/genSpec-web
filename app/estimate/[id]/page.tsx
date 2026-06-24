@@ -17,6 +17,7 @@ import {
 import type { CopilotHandle } from "@/components/estimate/Copilot";
 import WorkbookEditor from "@/components/estimate/WorkbookEditor";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
+import { takePendingSheets } from "@/lib/pendingSheets";
 
 export default function EstimateEditorPage() {
   const { t } = useT();
@@ -55,8 +56,19 @@ export default function EstimateEditorPage() {
     let alive = true;
     api
       .getEstimate(id)
-      .then((e) => {
+      .then((fetched) => {
         if (!alive) return;
+        let e = fetched;
+
+        // Check for locally-parsed sheets (from Excel import before server sync)
+        const pending = takePendingSheets(e.id);
+        if (pending) {
+          // Inject parsed sheets immediately so the UI shows data right away
+          e = { ...e, sheets: pending.sheets };
+          // Sync to server in background — don't await, don't block UI
+          api.importExcel(e.id, pending.file).catch(() => {/* silent, user already sees data */});
+        }
+
         setEstimate(e);
         if (e.sheets && e.sheets.length > 0) {
           setActiveSheetId(e.sheets[0].id);
