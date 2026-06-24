@@ -13,6 +13,7 @@ import { setPendingSheets } from "@/lib/pendingSheets";
 import { DashboardIcon, PlusIcon, LogoutIcon } from "./ui/icons";
 import { Spinner } from "./ui/Button";
 import { LanguageToggle } from "./LanguageToggle";
+import { ThemeToggle } from "./ui/ThemeToggle";
 import { ProjectHistory } from "./home/ProjectHistory";
 import { NewProjectModal } from "./home/NewProjectModal";
 import { useToast } from "./ui/Toast";
@@ -172,6 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <LanguageToggle />
             <nav className="flex items-center gap-1 lg:hidden">
               {NAV.map((item) => {

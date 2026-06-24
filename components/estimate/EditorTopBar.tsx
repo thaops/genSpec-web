@@ -7,6 +7,7 @@ import { cn, formatVnd } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
 
 interface Props {
@@ -110,6 +111,7 @@ export function EditorTopBar({
         {exporting ? t("editor.exporting") : t("editor.export")}
       </Button>
 
+      <ThemeToggle />
       <LanguageToggle />
     </div>
   );

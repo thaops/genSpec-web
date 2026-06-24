@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { Sheet, Workbook } from "@/lib/types";
+import { useTheme } from "@/lib/theme";
 
 interface Props {
   workbookData: Workbook;
@@ -25,9 +26,31 @@ export default function WorkbookEditor({
   onDataChange,
   findings = [],
 }: Props) {
+  const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<any>(null);
   const univerAPIRef = useRef<any>(null);
+
+  function applyUniverColors() {
+    const cs = getComputedStyle(document.documentElement);
+    const set = (k: string, src: string) => {
+      const v = cs.getPropertyValue(src).trim();
+      if (v) document.documentElement.style.setProperty(k, v);
+    };
+    [50, 100, 200, 300, 400, 500, 600, 700, 800, 900].forEach((n) => {
+      set(`--univer-gray-${n}`, `--color-zinc-${n}`);
+    });
+    set("--univer-primary-400", "--color-accent-400");
+    set("--univer-primary-500", "--color-accent-500");
+    set("--univer-primary-600", "--color-accent-600");
+  }
+
+  // Sync Univer theme when app theme changes
+  useEffect(() => {
+    if (!univerAPIRef.current) return;
+    univerAPIRef.current.toggleDarkMode(theme === "dark");
+    applyUniverColors();
+  }, [theme]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !containerRef.current) return;
@@ -55,21 +78,9 @@ export default function WorkbookEditor({
       univerRef.current = univer;
       univerAPIRef.current = univerAPI;
 
-      univerAPI.toggleDarkMode(true);
-
-      // Read app's compiled CSS vars and set them as inline styles on :root
-      // (inline style always beats stylesheet, avoids Univer re-injection order issue)
-      const cs = getComputedStyle(document.documentElement);
-      const set = (k: string, src: string) => {
-        const v = cs.getPropertyValue(src).trim();
-        if (v) document.documentElement.style.setProperty(k, v);
-      };
-      [50, 100, 200, 300, 400, 500, 600, 700, 800, 900].forEach((n) => {
-        set(`--univer-gray-${n}`, `--color-zinc-${n}`);
-      });
-      set("--univer-primary-400", "--color-accent-400");
-      set("--univer-primary-500", "--color-accent-500");
-      set("--univer-primary-600", "--color-accent-600");
+      const isDark = !document.documentElement.classList.contains("light");
+      univerAPI.toggleDarkMode(isDark);
+      applyUniverColors();
 
       const sheets: Record<string, any> = {};
       const sheetOrder: string[] = [];
