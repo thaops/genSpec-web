@@ -8,6 +8,7 @@ import type {
   CopilotStep,
   CopilotProposal,
   ConversationMessage,
+  InsightItem,
   Action,
   ApplyActionsResponse,
   ApiErrorBody,
@@ -350,6 +351,10 @@ export const api = {
       method: "POST",
       body: { messages },
     }),
+
+  // ---------- Project Intelligence ----------
+  getInsights: (id: string) =>
+    request<InsightItem[]>(`/estimates/${id}/insights`),
 
   // ---------- Export ----------
   exportF1: (id: string) => downloadBlob(`/estimates/${id}/export-f1`),

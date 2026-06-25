@@ -500,6 +500,15 @@ export interface ApiErrorBody {
   error?: string;
 }
 
+// ---------- Project Intelligence ----------
+
+export interface InsightItem {
+  title: string;
+  detail: string;
+  type: "cost" | "risk" | "saving" | "data" | "formula";
+  impact?: string;
+}
+
 // ---------- Agent Console ----------
 
 export type ReviewSeverity = "info" | "warning" | "critical";

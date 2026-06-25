@@ -16,6 +16,7 @@ import {
 } from "@/components/estimate/AgentConsole";
 import type { AgentHandle } from "@/components/estimate/AgentConsole";
 import WorkbookEditor from "@/components/estimate/WorkbookEditor";
+import { InsightsDashboard } from "@/components/estimate/InsightsDashboard";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
 import { takePendingSheets } from "@/lib/pendingSheets";
 
@@ -41,6 +42,7 @@ export default function EstimateEditorPage() {
     endCol: number;
   } | undefined>(undefined);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
+  const [viewMode, setViewMode] = useState<"workbook" | "insights">("workbook");
   const copilotRef = useRef<AgentHandle>(null);
   const autoSentRef = useRef(false);
 
@@ -251,6 +253,29 @@ export default function EstimateEditorPage() {
               + New Sheet
             </button>
           </div>
+          {/* View mode tabs */}
+          <div className="flex border-b border-zinc-800 px-2 pt-1 gap-1">
+            <button
+              onClick={() => setViewMode("workbook")}
+              className={`flex-1 rounded-t px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                viewMode === "workbook"
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              📄 Workbook
+            </button>
+            <button
+              onClick={() => setViewMode("insights")}
+              className={`flex-1 rounded-t px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                viewMode === "insights"
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              📊 Insights
+            </button>
+          </div>
           <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
             <div className="text-[11px] font-medium text-zinc-600 px-2 py-1 uppercase tracking-wider">
               📁 {estimate.name}
@@ -266,6 +291,7 @@ export default function EstimateEditorPage() {
                 onClick={() => {
                   if (renamingSheetId !== sheet.id) {
                     setActiveSheetId(sheet.id);
+                    setViewMode("workbook");
                   }
                 }}
               >
@@ -323,7 +349,9 @@ export default function EstimateEditorPage() {
 
         {/* Main Area */}
         <div className="min-w-0 flex-1 overflow-hidden relative bg-zinc-950 flex flex-col">
-          {activeSheetId ? (
+          {viewMode === "insights" ? (
+            <InsightsDashboard estimate={estimate} />
+          ) : activeSheetId ? (
             <>
               {(() => {
                 const currentSheet = sheetsList.find((s) => s.id === activeSheetId);
