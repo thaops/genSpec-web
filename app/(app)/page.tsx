@@ -25,6 +25,12 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
 }
 
+// ---- feed helpers ----
+function domainFavicon(url: string | null) {
+  if (!url) return null;
+  try { return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=64`; } catch { return null; }
+}
+
 // ---- feed badges ----
 const TYPE_LABELS: Record<string, string> = {
   price_notification: "Thông báo giá",
@@ -457,28 +463,29 @@ export default function HomePage() {
                     className="group flex flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 text-left transition-all hover:border-zinc-600 hover:shadow-lg hover:shadow-black/30"
                   >
                     {/* Image / placeholder */}
-                    {item.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.imageUrl}
-                        alt=""
-                        className="h-36 w-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                      />
-                    ) : (
-                      <div
-                        className={cn(
-                          "flex h-36 w-full items-center justify-center text-3xl",
-                          item.type === "price_notification" ? "bg-blue-900/30" :
-                          item.type === "circular" ? "bg-purple-900/30" :
-                          item.type === "decision" ? "bg-emerald-900/30" : "bg-amber-900/30",
-                        )}
-                      >
-                        {item.type === "price_notification" ? "💰" :
-                         item.type === "circular" ? "📜" :
-                         item.type === "decision" ? "✅" : "📋"}
+                    <div className="relative h-36 w-full overflow-hidden">
+                      {item.imageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        />
+                      )}
+                      <div className={cn(
+                        "absolute inset-0 flex flex-col items-center justify-center gap-2",
+                        item.type === "price_notification" ? "bg-gradient-to-br from-blue-900/60 to-blue-950/80" :
+                        item.type === "circular" ? "bg-gradient-to-br from-purple-900/60 to-purple-950/80" :
+                        item.type === "decision" ? "bg-gradient-to-br from-emerald-900/60 to-emerald-950/80" :
+                        "bg-gradient-to-br from-amber-900/60 to-amber-950/80",
+                        item.imageUrl ? "opacity-0" : "opacity-100",
+                      )}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {domainFavicon(item.url) && <img src={domainFavicon(item.url)!} alt="" className="h-8 w-8 rounded opacity-80" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
+                        <span className="text-[10px] text-zinc-400 opacity-80">{item.source}</span>
                       </div>
-                    )}
+                    </div>
                     {/* Content */}
                     <div className="flex flex-1 flex-col p-3">
                       <span className={cn("mb-1.5 w-fit rounded px-1.5 py-0.5 text-[10px]", TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400")}>
@@ -554,16 +561,30 @@ export default function HomePage() {
                     onClick={() => { if (item.url) window.open(item.url, "_blank", "noopener"); }}
                     className="w-full overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/50 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
                   >
-                    {/* Thumbnail if available */}
-                    {item.imageUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.imageUrl}
-                        alt=""
-                        className="h-24 w-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                      />
-                    )}
+                    {/* Thumbnail */}
+                    <div className="relative h-20 w-full overflow-hidden">
+                      {item.imageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        />
+                      )}
+                      <div className={cn(
+                        "absolute inset-0 flex items-center justify-center gap-2",
+                        item.type === "price_notification" ? "bg-gradient-to-r from-blue-900/50 to-blue-950/70" :
+                        item.type === "circular" ? "bg-gradient-to-r from-purple-900/50 to-purple-950/70" :
+                        item.type === "decision" ? "bg-gradient-to-r from-emerald-900/50 to-emerald-950/70" :
+                        "bg-gradient-to-r from-amber-900/50 to-amber-950/70",
+                        item.imageUrl ? "opacity-0" : "opacity-100",
+                      )}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {domainFavicon(item.url) && <img src={domainFavicon(item.url)!} alt="" className="h-6 w-6 rounded opacity-70" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
+                        <span className="text-[9px] text-zinc-500">{item.source}</span>
+                      </div>
+                    </div>
                     <div className="p-3">
                       <div className="mb-1.5 flex items-center gap-2">
                         <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px]", TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400")}>
