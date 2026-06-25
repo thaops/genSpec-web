@@ -6,7 +6,6 @@ import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { setPendingTask, type TaskType } from "@/lib/pendingTask";
-import { setPendingPrompt } from "@/lib/pendingPrompt";
 import type { EstimateListItem, OfficialFeedItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -40,131 +39,6 @@ const TYPE_COLORS: Record<string, string> = {
   decision: "bg-emerald-500/10 text-emerald-300",
 };
 
-// ───────────────────────── Feed Detail Modal ─────────────────────────
-// (Kept as-is — not a workspace action, just a document viewer)
-function FeedDetailModal({
-  item,
-  onClose,
-  estimates,
-}: {
-  item: OfficialFeedItem;
-  onClose: () => void;
-  estimates: EstimateListItem[];
-}) {
-  const router = useRouter();
-  const stars = Math.min(5, Math.round(item.trustScore / 20));
-  const targetId = estimates[0]?.id;
-
-  function fire(prompt: string) {
-    if (!targetId) return;
-    setPendingPrompt({ estimateId: targetId, message: prompt, files: [] });
-    onClose();
-    router.push(`/estimate/${targetId}`);
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start gap-3">
-          <div className="flex-1">
-            <span
-              className={cn(
-                "rounded px-2 py-0.5 text-[10px]",
-                TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400",
-              )}
-            >
-              {TYPE_LABELS[item.type] ?? item.type}
-            </span>
-            <h2 className="mt-2 text-[13px] font-semibold leading-snug text-zinc-100">
-              {item.title}
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="ml-2 shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-500 hover:text-zinc-300"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-[11px]">
-          <div>
-            <span className="text-zinc-500">Nguồn</span>
-            <div className="mt-0.5 font-medium text-zinc-300">{item.source}</div>
-          </div>
-          <div>
-            <span className="text-zinc-500">Khu vực</span>
-            <div className="mt-0.5 font-medium text-zinc-300">{item.region}</div>
-          </div>
-          {item.issuedDate && (
-            <div>
-              <span className="text-zinc-500">Ban hành</span>
-              <div className="mt-0.5 font-medium text-zinc-300">{item.issuedDate}</div>
-            </div>
-          )}
-          {item.effectiveDate && (
-            <div>
-              <span className="text-zinc-500">Hiệu lực</span>
-              <div className="mt-0.5 font-medium text-zinc-300">{item.effectiveDate}</div>
-            </div>
-          )}
-          <div className="col-span-2">
-            <span className="text-zinc-500">Độ tin cậy</span>
-            <div className="mt-0.5 flex items-center gap-1">
-              {Array.from({ length: 5 }, (_, i) => (
-                <span key={i} className={i < stars ? "text-amber-400" : "text-zinc-700"}>★</span>
-              ))}
-              <span className="ml-1 text-zinc-500">{item.trustScore}/100</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          {item.url && (
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 text-[12px] text-zinc-300 transition-colors hover:bg-zinc-700"
-            >
-              📄 Xem văn bản gốc
-            </a>
-          )}
-          {targetId ? (
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() =>
-                  fire(`Giải thích nội dung văn bản: "${item.title}" từ ${item.source}. Tóm tắt điểm chính và ảnh hưởng thực tế đến dự toán xây dựng.`)
-                }
-                className="rounded-lg bg-violet-600/90 py-2.5 text-[12px] font-medium text-white transition-colors hover:bg-violet-500"
-              >
-                ✨ AI Giải thích
-              </button>
-              <button
-                onClick={() =>
-                  fire(`Áp dụng quy định và giá từ văn bản "${item.title}" (${item.source}) vào workspace. Sinh Proposal cập nhật trước khi áp dụng.`)
-                }
-                className="rounded-lg bg-emerald-600/90 py-2.5 text-[12px] font-medium text-white transition-colors hover:bg-emerald-500"
-              >
-                ⚡ Áp dụng vào WS
-              </button>
-            </div>
-          ) : (
-            <p className="text-center text-[11px] text-zinc-500">
-              Tạo workspace để dùng AI Giải thích và Áp dụng
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ───────────────────────── Main page ─────────────────────────
 export default function HomePage() {
@@ -175,9 +49,8 @@ export default function HomePage() {
   const [estimates, setEstimates] = useState<EstimateListItem[]>([]);
   const [feed, setFeed] = useState<OfficialFeedItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
+  const [feedFullscreen, setFeedFullscreen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [feedDetail, setFeedDetail] = useState<OfficialFeedItem | null>(null);
-  // Pending action waiting for workspace selection (when multiple workspaces exist)
   const [pendingAction, setPendingAction] = useState<{
     type: TaskType;
     params?: Record<string, string>;
@@ -186,9 +59,29 @@ export default function HomePage() {
   useEffect(() => {
     let alive = true;
     api.listEstimates().then((e) => alive && setEstimates(e)).catch(() => {});
+
+    // Daily cache: only re-fetch if cache is older than 24h
+    const CACHE_KEY = "genspec_official_feed_v1";
+    const CACHE_TTL = 24 * 60 * 60 * 1000;
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const { data, fetchedAt } = JSON.parse(raw) as { data: OfficialFeedItem[]; fetchedAt: number };
+        if (Date.now() - fetchedAt < CACHE_TTL) {
+          if (alive) { setFeed(data); setFeedLoading(false); }
+          return () => { alive = false; };
+        }
+      }
+    } catch { /* ignore */ }
+
     api
       .getHomeFeed()
-      .then((f) => { if (alive) { setFeed(f); setFeedLoading(false); } })
+      .then((f) => {
+        if (!alive) return;
+        setFeed(f);
+        setFeedLoading(false);
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: f, fetchedAt: Date.now() })); } catch { /* ignore */ }
+      })
       .catch(() => { if (alive) setFeedLoading(false); });
     return () => { alive = false; };
   }, []);
@@ -235,7 +128,6 @@ export default function HomePage() {
   // KPIs
   const officialUpdates = feed.length;
   const needReview = estimates.filter((e) => e.takeoffCount > 0).length;
-  const totalValue = estimates.reduce((s, e) => s + (e.costs?.total ?? 0), 0);
   const healthyCount = estimates.filter((e) => e.itemCount > 0 && (e.costs?.total ?? 0) > 0).length;
   const healthPct = estimates.length > 0 ? Math.round((healthyCount / estimates.length) * 100) : 0;
 
@@ -255,14 +147,6 @@ export default function HomePage() {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {feedDetail && (
-        <FeedDetailModal
-          item={feedDetail}
-          onClose={() => setFeedDetail(null)}
-          estimates={estimates}
-        />
-      )}
-
       {/* Workspace picker dialog */}
       {pendingAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -537,6 +421,95 @@ export default function HomePage() {
         </div>
       </div>
 
+      {/* ── Official Feed Fullscreen overlay ── */}
+      {feedFullscreen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-zinc-950">
+          {/* Header */}
+          <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-6 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-base">📡</span>
+              <span className="text-sm font-semibold text-zinc-100">Official Feed</span>
+              <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                Live
+              </span>
+            </div>
+            <button
+              onClick={() => setFeedFullscreen(false)}
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-700"
+            >
+              ✕ Thu gọn
+            </button>
+          </div>
+          {/* Grid */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {feedLoading ? (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                {Array.from({ length: 8 }, (_, i) => (
+                  <div key={i} className="h-52 animate-pulse rounded-xl bg-zinc-800/60" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                {feed.map((item, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setFeedFullscreen(false); if (item.url) window.open(item.url, "_blank", "noopener"); }}
+                    className="group flex flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 text-left transition-all hover:border-zinc-600 hover:shadow-lg hover:shadow-black/30"
+                  >
+                    {/* Image / placeholder */}
+                    {item.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.imageUrl}
+                        alt=""
+                        className="h-36 w-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    ) : (
+                      <div
+                        className={cn(
+                          "flex h-36 w-full items-center justify-center text-3xl",
+                          item.type === "price_notification" ? "bg-blue-900/30" :
+                          item.type === "circular" ? "bg-purple-900/30" :
+                          item.type === "decision" ? "bg-emerald-900/30" : "bg-amber-900/30",
+                        )}
+                      >
+                        {item.type === "price_notification" ? "💰" :
+                         item.type === "circular" ? "📜" :
+                         item.type === "decision" ? "✅" : "📋"}
+                      </div>
+                    )}
+                    {/* Content */}
+                    <div className="flex flex-1 flex-col p-3">
+                      <span className={cn("mb-1.5 w-fit rounded px-1.5 py-0.5 text-[10px]", TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400")}>
+                        {TYPE_LABELS[item.type] ?? item.type}
+                      </span>
+                      <p className="line-clamp-2 flex-1 text-[12px] font-medium leading-snug text-zinc-200 group-hover:text-white">
+                        {item.title}
+                      </p>
+                      {item.summary && (
+                        <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-zinc-500">
+                          {item.summary}
+                        </p>
+                      )}
+                      <div className="mt-2 flex items-center gap-1.5 text-[10px] text-zinc-600">
+                        <span>{item.region}</span>
+                        {item.issuedDate && <><span>·</span><span>{item.issuedDate}</span></>}
+                        <span className="ml-auto text-amber-500/70">
+                          {Array.from({ length: Math.min(5, Math.round(item.trustScore / 20)) }, (_, j) => (
+                            <span key={j}>★</span>
+                          ))}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Right panel ── */}
       <aside
         id="official-feed"
@@ -550,10 +523,17 @@ export default function HomePage() {
               <div className="flex items-center gap-1.5">
                 <span className="text-sm">📡</span>
                 <span className="text-xs font-semibold text-zinc-200">Official Feed</span>
+                <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                  Live
+                </span>
               </div>
-              <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
-                Live
-              </span>
+              <button
+                onClick={() => setFeedFullscreen(true)}
+                title="Xem toàn màn hình"
+                className="rounded-md p-1 text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+              >
+                ⛶
+              </button>
             </div>
 
             {feedLoading ? (
@@ -571,37 +551,38 @@ export default function HomePage() {
                 {feed.map((item, i) => (
                   <button
                     key={i}
-                    onClick={() => setFeedDetail(item)}
-                    className="w-full rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
+                    onClick={() => { if (item.url) window.open(item.url, "_blank", "noopener"); }}
+                    className="w-full overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/50 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
                   >
-                    <div className="mb-1.5 flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
-                          TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400",
-                        )}
-                      >
-                        {TYPE_LABELS[item.type] ?? item.type}
-                      </span>
-                      <span className="ml-auto text-[10px] text-amber-500/80">
-                        {Array.from(
-                          { length: Math.min(5, Math.round(item.trustScore / 20)) },
-                          (_, j) => <span key={j}>★</span>,
-                        )}
-                      </span>
-                    </div>
-                    <p className="line-clamp-2 text-[12px] leading-snug text-zinc-300">
-                      {item.title}
-                    </p>
-                    <div className="mt-1.5 flex items-center gap-2 text-[10px] text-zinc-600">
-                      <span>{item.region}</span>
-                      {item.issuedDate && (
-                        <>
-                          <span>·</span>
-                          <span>{item.issuedDate}</span>
-                        </>
-                      )}
-                      <span className="ml-auto text-zinc-700">Xem →</span>
+                    {/* Thumbnail if available */}
+                    {item.imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.imageUrl}
+                        alt=""
+                        className="h-24 w-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    )}
+                    <div className="p-3">
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px]", TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400")}>
+                          {TYPE_LABELS[item.type] ?? item.type}
+                        </span>
+                        <span className="ml-auto text-[10px] text-amber-500/80">
+                          {Array.from({ length: Math.min(5, Math.round(item.trustScore / 20)) }, (_, j) => (
+                            <span key={j}>★</span>
+                          ))}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 text-[12px] leading-snug text-zinc-300">
+                        {item.title}
+                      </p>
+                      <div className="mt-1.5 flex items-center gap-2 text-[10px] text-zinc-600">
+                        <span>{item.region}</span>
+                        {item.issuedDate && <><span>·</span><span>{item.issuedDate}</span></>}
+                        <span className="ml-auto text-zinc-700">Xem →</span>
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -642,50 +623,6 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Portfolio */}
-          <div>
-            <div className="mb-3 flex items-center gap-1.5">
-              <span className="text-sm">📊</span>
-              <span className="text-xs font-semibold text-zinc-200">Portfolio</span>
-            </div>
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              {estimates.length === 0 ? (
-                <p className="text-center text-[11px] text-zinc-500">
-                  Tạo workspace để xem thống kê
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">Tổng workspace</span>
-                    <span className="font-medium text-zinc-300">{estimates.length}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">Tổng giá trị</span>
-                    <span className="font-medium text-zinc-300">
-                      {totalValue > 0 ? `${fmt(totalValue)} VNĐ` : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">Health</span>
-                    <span
-                      className={cn(
-                        "font-medium",
-                        healthPct >= 70 ? "text-emerald-400" : "text-amber-400",
-                      )}
-                    >
-                      {estimates.length > 0 ? `${healthPct}%` : "—"}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => router.push(`/estimate/${estimates[0].id}?view=insights`)}
-                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 py-1.5 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-700"
-                  >
-                    Insights chi tiết →
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       </aside>
     </div>

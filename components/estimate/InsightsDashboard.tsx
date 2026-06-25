@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import type { Estimate, InsightItem, CostSummary, Costs } from "@/lib/types";
-import { api } from "@/lib/api";
+import type { Estimate, CostSummary, Costs } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatVndShort, formatVnd } from "@/lib/utils";
 
@@ -255,23 +253,9 @@ function DonutGauge({ score }: { score: number }) {
   );
 }
 
-const INSIGHT_META: Record<
-  string,
-  { icon: string; borderColor: string; bgColor: string }
-> = {
-  cost: { icon: "💰", borderColor: "border-blue-500/30", bgColor: "bg-blue-500/5" },
-  risk: { icon: "⚠️", borderColor: "border-amber-500/30", bgColor: "bg-amber-500/5" },
-  saving: { icon: "💡", borderColor: "border-emerald-500/30", bgColor: "bg-emerald-500/5" },
-  data: { icon: "📊", borderColor: "border-violet-500/30", bgColor: "bg-violet-500/5" },
-  formula: { icon: "🔢", borderColor: "border-zinc-500/30", bgColor: "bg-zinc-800/40" },
-};
 
 // ---- Main ----
 export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
-  const [insights, setInsights] = useState<InsightItem[]>([]);
-  const [loadingInsights, setLoadingInsights] = useState(false);
-  const [insightsLoaded, setInsightsLoaded] = useState(false);
-
   const s = semantic(estimate);
   const healthScore = s.validation?.score ?? 0;
   const criticalCount = (s.validation?.findings ?? []).filter(
@@ -281,20 +265,6 @@ export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
     (f) => f.severity === "warn"
   ).length;
 
-  async function loadInsights() {
-    if (loadingInsights) return;
-    setLoadingInsights(true);
-    try {
-      const result = await api.getInsights(estimate.id);
-      setInsights(result ?? []);
-      setInsightsLoaded(true);
-    } catch {
-      setInsightsLoaded(true);
-    } finally {
-      setLoadingInsights(false);
-    }
-  }
-
   return (
     <div className="flex h-full flex-col overflow-hidden bg-zinc-950">
       {/* Header */}
@@ -303,7 +273,7 @@ export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
           📊 Project Intelligence
         </p>
         <p className="mt-0.5 text-[11px] text-zinc-600">
-          {estimate.name} — phân tích dự toán tự động
+          {estimate.name}
         </p>
       </div>
 
@@ -525,83 +495,6 @@ export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
             </Card>
           )}
 
-          {/* AI Insights */}
-          <Card
-            title="AI Insights"
-            action={
-              insightsLoaded ? (
-                <button
-                  onClick={loadInsights}
-                  disabled={loadingInsights}
-                  className="rounded px-2 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300 disabled:opacity-40"
-                >
-                  {loadingInsights ? "Đang phân tích…" : "↻ Làm mới"}
-                </button>
-              ) : null
-            }
-          >
-            {!insightsLoaded ? (
-              <div className="flex flex-col items-center gap-3 py-6 text-center">
-                <p className="text-xs text-zinc-500">
-                  AI phân tích toàn bộ dự toán và đưa ra nhận xét chuyên sâu.
-                </p>
-                <button
-                  onClick={loadInsights}
-                  disabled={loadingInsights}
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  {loadingInsights ? (
-                    <span className="flex items-center gap-2">
-                      <span className="h-3 w-3 animate-spin rounded-full border border-zinc-500 border-t-accent-400" />
-                      Đang phân tích…
-                    </span>
-                  ) : (
-                    "✨ Phân tích ngay"
-                  )}
-                </button>
-              </div>
-            ) : loadingInsights ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-xs text-zinc-500">
-                <span className="h-3 w-3 animate-spin rounded-full border border-zinc-500 border-t-accent-400" />
-                Đang phân tích dự toán…
-              </div>
-            ) : insights.length === 0 ? (
-              <p className="py-4 text-center text-xs text-zinc-600">
-                Không có insight nào được sinh ra.
-              </p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {insights.map((ins, i) => {
-                  const meta = INSIGHT_META[ins.type] ?? INSIGHT_META.data;
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        "rounded-lg border p-3",
-                        meta.borderColor,
-                        meta.bgColor
-                      )}
-                    >
-                      <div className="mb-1 flex items-start gap-2">
-                        <span className="text-sm">{meta.icon}</span>
-                        <p className="text-xs font-medium text-zinc-200 leading-snug">
-                          {ins.title}
-                        </p>
-                      </div>
-                      <p className="text-[11px] leading-relaxed text-zinc-400">
-                        {ins.detail}
-                      </p>
-                      {ins.impact && (
-                        <p className="mt-1.5 text-[10px] font-medium text-accent-400">
-                          → {ins.impact}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
         </div>
       </div>
     </div>

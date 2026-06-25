@@ -196,7 +196,7 @@ const BOQ_TYPES = [
   { value: "cost",     label: "Chi phí",   detail: "cơ cấu chi phí VL/NC/Máy, top 10 hạng mục đắt nhất, so sánh suất đầu tư chuẩn khu vực" },
   { value: "material", label: "Vật liệu",  detail: "top 10 vật tư chiếm nhiều chi phí nhất, kiểm tra giá đơn vị so thị trường, phát hiện giá bất thường" },
   { value: "risk",     label: "Rủi ro",    detail: "hạng mục giá AI_estimate, thiếu nguồn dữ liệu, độ không chắc chắn cao — đề xuất bổ sung" },
-  { value: "full",     label: "Toàn diện", detail: "cơ cấu chi phí + vật liệu + rủi ro + dự báo cash flow theo tiến độ" },
+  { value: "full",     label: "Toàn diện", detail: "cơ cấu chi phí + vật liệu + rủi ro + tổng hợp đề xuất tối ưu" },
 ];
 
 function BocAnalysisTaskBody({ onRun }: { onRun: (p: string) => void }) {

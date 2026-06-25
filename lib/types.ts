@@ -518,6 +518,8 @@ export interface OfficialFeedItem {
   type: "price_notification" | "regulation" | "circular" | "decision";
   trustScore: number;
   url: string | null;
+  imageUrl?: string | null;
+  summary?: string | null;
 }
 
 // ---------- Agent Console ----------
