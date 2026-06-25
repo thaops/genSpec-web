@@ -9,6 +9,7 @@ import type {
   CopilotProposal,
   ConversationMessage,
   InsightItem,
+  OfficialFeedItem,
   Action,
   ApplyActionsResponse,
   ApiErrorBody,
@@ -355,6 +356,9 @@ export const api = {
   // ---------- Project Intelligence ----------
   getInsights: (id: string) =>
     request<InsightItem[]>(`/estimates/${id}/insights`),
+
+  // ---------- Home Feed ----------
+  getHomeFeed: () => request<OfficialFeedItem[]>("/home/feed"),
 
   // ---------- Export ----------
   exportF1: (id: string) => downloadBlob(`/estimates/${id}/export-f1`),

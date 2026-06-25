@@ -509,6 +509,17 @@ export interface InsightItem {
   impact?: string;
 }
 
+export interface OfficialFeedItem {
+  title: string;
+  region: string;
+  source: string;
+  issuedDate: string | null;
+  effectiveDate: string | null;
+  type: "price_notification" | "regulation" | "circular" | "decision";
+  trustScore: number;
+  url: string | null;
+}
+
 // ---------- Agent Console ----------
 
 export type ReviewSeverity = "info" | "warning" | "critical";
