@@ -801,32 +801,39 @@ function ChatPanel({
         })}
 
         {streaming && (
-          <div className="animate-slide-up space-y-2 rounded-xl border border-accent-500/20 bg-zinc-900/50 p-3">
-            <div className="flex items-center gap-2">
-              <span className="flex gap-0.5">
-                {(["0ms", "160ms", "320ms"] as const).map((d) => (
-                  <span
-                    key={d}
-                    className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-400"
-                    style={{ animationDelay: d, animationDuration: "1s" }}
-                  />
-                ))}
-              </span>
-              <span className="text-[12px] font-medium text-zinc-400">
-                Agent đang xử lý...
-              </span>
+          <div className="flex animate-slide-up justify-start">
+            <div className="max-w-[88%] rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-2.5 text-sm text-zinc-200">
+              {/* Step chips — only while waiting for first token */}
+              {!typedTail && liveSteps.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {liveSteps.slice(-2).map((s, i) => (
+                    <span
+                      key={i}
+                      className="flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400"
+                    >
+                      <span className="h-1 w-1 animate-pulse rounded-full bg-accent-400" />
+                      {s.text}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Streaming text — same style as final ChatBubble, grows in-place */}
+              {typedTail ? (
+                <p className={cn("whitespace-pre-wrap leading-relaxed", caretActive && "type-caret")}>
+                  {typedTail}
+                </p>
+              ) : (
+                <span className="flex gap-0.5 py-0.5">
+                  {(["0ms", "160ms", "320ms"] as const).map((d) => (
+                    <span
+                      key={d}
+                      className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-500"
+                      style={{ animationDelay: d, animationDuration: "1s" }}
+                    />
+                  ))}
+                </span>
+              )}
             </div>
-            {typedTail.trim() && (
-              <p
-                className={cn(
-                  "whitespace-pre-wrap text-[12.5px] leading-relaxed text-zinc-300",
-                  caretActive && "type-caret"
-                )}
-              >
-                {typedTail}
-              </p>
-            )}
-            <LiveTimeline steps={liveSteps} streaming={streaming} />
           </div>
         )}
       </div>
