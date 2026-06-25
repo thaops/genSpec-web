@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Action, Estimate, Sheet } from "@/lib/types";
+import type { Action, Estimate, ReviewFinding, Sheet } from "@/lib/types";
 import { api, ApiError, triggerDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -11,10 +11,10 @@ import { useToast } from "@/components/ui/Toast";
 import { Button, Spinner } from "@/components/ui/Button";
 import { EditorTopBar } from "@/components/estimate/EditorTopBar";
 import {
-  CopilotPanel,
+  AgentConsole,
   readCopilotCollapsed,
-} from "@/components/estimate/CopilotPanel";
-import type { CopilotHandle } from "@/components/estimate/Copilot";
+} from "@/components/estimate/AgentConsole";
+import type { AgentHandle } from "@/components/estimate/AgentConsole";
 import WorkbookEditor from "@/components/estimate/WorkbookEditor";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
 import { takePendingSheets } from "@/lib/pendingSheets";
@@ -40,8 +40,8 @@ export default function EstimateEditorPage() {
     endRow: number;
     endCol: number;
   } | undefined>(undefined);
-  const [findings, setFindings] = useState<any[]>([]);
-  const copilotRef = useRef<CopilotHandle>(null);
+  const [findings, setFindings] = useState<ReviewFinding[]>([]);
+  const copilotRef = useRef<AgentHandle>(null);
   const autoSentRef = useRef(false);
 
   useEffect(() => {
@@ -202,7 +202,7 @@ export default function EstimateEditorPage() {
     apply([{ type: "set_sheets", sheets: nextSheets }]);
   }
 
-  function handleFindings(newFindings: any[]) {
+  function handleFindings(newFindings: ReviewFinding[]) {
     setFindings(newFindings);
   }
 
@@ -386,7 +386,7 @@ export default function EstimateEditorPage() {
         </div>
 
         {/* AI Sidebar */}
-        <CopilotPanel
+        <AgentConsole
           estimate={estimate}
           onEstimateUpdated={applyEstimate}
           controlRef={copilotRef}

@@ -7,6 +7,7 @@ import type {
   CatalogItem,
   CopilotStep,
   CopilotProposal,
+  ConversationMessage,
   Action,
   ApplyActionsResponse,
   ApiErrorBody,
@@ -121,6 +122,7 @@ export interface CopilotStreamHandlers {
   onError: (message: string) => void;
   onToken?: (text: string) => void;
   signal?: AbortSignal;
+  editPermission?: boolean;
 }
 
 // Parse one SSE frame ("event:" / "data:" lines) and dispatch to handlers.
@@ -173,6 +175,9 @@ async function copilotStream(
   for (const f of files) form.append("files", f);
   if (activeSheetId) form.append("activeSheetId", activeSheetId);
   if (selectedRange) form.append("selectedRange", JSON.stringify(selectedRange));
+  if (handlers.editPermission !== undefined) {
+    form.append("editPermission", String(handlers.editPermission));
+  }
 
   let res: Response;
   try {
@@ -335,6 +340,16 @@ export const api = {
     }
     return res.json() as Promise<Estimate>;
   },
+
+  // ---------- Conversation ----------
+  getConversation: (id: string) =>
+    request<ConversationMessage[]>(`/estimates/${id}/conversation`),
+
+  saveConversation: (id: string, messages: ConversationMessage[]) =>
+    request<{ ok: true }>(`/estimates/${id}/conversation`, {
+      method: "POST",
+      body: { messages },
+    }),
 
   // ---------- Export ----------
   exportF1: (id: string) => downloadBlob(`/estimates/${id}/export-f1`),

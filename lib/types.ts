@@ -370,6 +370,7 @@ export interface Estimate {
   trace: TraceItem[]; // auditable derivation per BOQ line
   activityLog: ActivityEntry[]; // last 100
   patchHistory?: Patch[];
+  conversationMessages?: ConversationMessage[];
   createdAt: string;
   updatedAt: string;
 }
@@ -497,4 +498,32 @@ export interface ApiErrorBody {
   statusCode: number;
   message: string | string[];
   error?: string;
+}
+
+// ---------- Agent Console ----------
+
+export type ReviewSeverity = "info" | "warning" | "critical";
+
+export interface ReviewFinding {
+  id: string;
+  severity: ReviewSeverity;
+  area: string; // 'workbook' | 'formula' | 'material' | 'boq' | 'qs' | 'source'
+  message: string;
+  suggestion?: string;
+  sheetId?: string;
+  cellRef?: string;
+  code?: string;
+}
+
+export type ConversationKind = "user" | "assistant" | "proposal" | "review" | "error";
+
+export interface ConversationMessage {
+  id: string;
+  kind: ConversationKind;
+  text?: string;
+  proposal?: CopilotProposal;
+  proposalState?: "pending" | "applied" | "discarded";
+  appliedCount?: number;
+  findings?: ReviewFinding[];
+  timestamp: string;
 }
