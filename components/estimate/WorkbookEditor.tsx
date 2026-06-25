@@ -53,6 +53,9 @@ export default function WorkbookEditor({
   const univerAPIRef = useRef<any>(null);
   const observerRef = useRef<MutationObserver | null>(null);
   const themeRef = useRef(theme);
+  // Deduplicate: only call onDataChange when cell data actually changes
+  const lastCellHashRef = useRef<string>("");
+  const dataDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // isDark can be explicitly passed (effect ordering fix: child effects run BEFORE
   // parent ThemeProvider updates html class, so reading classList here would be stale).
@@ -160,13 +163,23 @@ export default function WorkbookEditor({
         if (cur) onActiveSheetChange(cur.getSheetId());
 
         const raw = wb.save();
-        if (raw?.sheets) {
-          const updated: Sheet[] = Object.keys(raw.sheets).map((key) => {
-            const s = raw.sheets[key];
-            return { id: s.id || key, name: s.name || "Sheet", data: s };
-          });
+        if (!raw?.sheets) return;
+        const updated: Sheet[] = Object.keys(raw.sheets).map((key) => {
+          const s = raw.sheets[key];
+          return { id: s.id || key, name: s.name || "Sheet", data: s };
+        });
+
+        // Only save if cell data actually changed (skip scroll/selection commands)
+        const hash = JSON.stringify(updated.map((s) => s.data?.cellData ?? {}));
+        if (hash === lastCellHashRef.current) return;
+        lastCellHashRef.current = hash;
+
+        // Debounce rapid keystrokes — flush after 700ms of inactivity
+        if (dataDebounceRef.current) clearTimeout(dataDebounceRef.current);
+        dataDebounceRef.current = setTimeout(() => {
           onDataChange(updated);
-        }
+          dataDebounceRef.current = null;
+        }, 700);
       });
 
       wb.onSelectionChange((selections: any[]) => {
@@ -188,6 +201,7 @@ export default function WorkbookEditor({
       destroyed = true;
       observerRef.current?.disconnect();
       observerRef.current = null;
+      if (dataDebounceRef.current) clearTimeout(dataDebounceRef.current);
       try { univerRef.current?.dispose(); } catch (_) { }
       univerRef.current = null;
       univerAPIRef.current = null;
