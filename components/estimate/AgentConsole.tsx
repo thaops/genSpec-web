@@ -17,6 +17,8 @@ import { LiveTimeline, type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
 import { HistoryTimeline } from "./HistoryTimeline";
 import { SparkleIcon, ChevronRightIcon } from "@/components/ui/icons";
+import { takePendingTask, type PendingTask } from "@/lib/pendingTask";
+import { TaskCard } from "./TaskCard";
 
 export interface AgentHandle {
   send: (text: string, files: File[]) => void;
@@ -74,6 +76,7 @@ export function AgentConsole({
   const [rollbackLoadingId, setRollbackLoadingId] = useState<
     string | undefined
   >();
+  const [activeTask, setActiveTask] = useState<PendingTask | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const idRef = useRef(0);
@@ -140,7 +143,7 @@ export function AgentConsole({
     (msgs: ConversationMessage[]) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
-        api.saveConversation(estimate.id, msgs).catch(() => {});
+        api.saveConversation(estimate.id, msgs).catch(() => { });
       }, 1000);
     },
     [estimate.id]
@@ -156,6 +159,17 @@ export function AgentConsole({
 
   // Cleanup abort on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
+
+  // Check for pending task on mount — shows Task Card instead of auto-firing
+  useEffect(() => {
+    const task = takePendingTask(estimate.id);
+    if (task) {
+      setActiveTask(task);
+      setTab("chat");
+      if (collapsed) onCollapsedChange(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estimate.id]);
 
   function toggleEditPermission() {
     const next = !editPermission;
@@ -499,10 +513,13 @@ export function AgentConsole({
             liveSteps={liveSteps}
             historyLoaded={historyLoaded}
             editPermission={editPermission}
+            activeTask={activeTask}
+            estimateName={estimate.name}
             onSend={send}
             onApplyProposal={applyProposal}
             onDiscardProposal={discardProposal}
             onSwitchToProposals={() => setTab("proposals")}
+            onClearTask={() => setActiveTask(null)}
             scrollRef={scrollRef}
           />
         )}
@@ -682,7 +699,7 @@ function ProposalsPanel({
             fresh={item.state === "pending"}
             onApply={() => onApply(item)}
             onDiscard={() => onDiscard(item)}
-            onViewActivity={() => {}}
+            onViewActivity={() => { }}
           />
           <p className="mt-1 px-1 text-[10px] text-zinc-600">
             {new Date(item.timestamp).toLocaleTimeString("vi-VN")}
@@ -704,10 +721,13 @@ interface ChatPanelProps {
   liveSteps: TimelineStep[];
   historyLoaded: boolean;
   editPermission: boolean;
+  activeTask: PendingTask | null;
+  estimateName: string;
   onSend: (text?: string, files?: File[]) => void;
   onApplyProposal: (item: ProposalItem) => void;
   onDiscardProposal: (item: ProposalItem) => void;
   onSwitchToProposals: () => void;
+  onClearTask: () => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -720,14 +740,22 @@ function ChatPanel({
   liveSteps,
   historyLoaded,
   editPermission,
+  activeTask,
+  estimateName,
   onSend,
   onApplyProposal,
   onDiscardProposal,
   onSwitchToProposals,
+  onClearTask,
   scrollRef,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+
+  function runTask(prompt: string) {
+    onClearTask();
+    onSend(prompt, []);
+  }
 
   return (
     <>
@@ -735,6 +763,16 @@ function ChatPanel({
         ref={scrollRef}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
       >
+        {/* Task Card — shown when a home action navigated here */}
+        {activeTask && (
+          <TaskCard
+            task={activeTask}
+            estimateName={estimateName}
+            onRun={runTask}
+            onDismiss={onClearTask}
+          />
+        )}
+
         {!historyLoaded && (
           <div className="flex justify-center py-4">
             <span className="text-[12px] text-zinc-600">
@@ -742,7 +780,7 @@ function ChatPanel({
             </span>
           </div>
         )}
-        {historyLoaded && thread.length === 0 && !streaming && (
+        {historyLoaded && thread.length === 0 && !streaming && !activeTask && (
           <ChatBubble
             role="assistant"
             text="Xin chào! Tôi là QS Agent. Tôi có thể đọc, phân tích và review Workbook dự toán của bạn."

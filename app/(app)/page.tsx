@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { setPendingTask, type TaskType } from "@/lib/pendingTask";
 import { setPendingPrompt } from "@/lib/pendingPrompt";
 import type { EstimateListItem, OfficialFeedItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -17,18 +18,15 @@ function fmt(n: number) {
   return n.toString();
 }
 function fmtDate(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffH = Math.floor(diffMs / 3_600_000);
-  const diffD = Math.floor(diffMs / 86_400_000);
+  const diffH = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
+  const diffD = Math.floor(diffH / 24);
   if (diffH < 1) return "vừa xong";
   if (diffH < 24) return `${diffH}h trước`;
   if (diffD < 7) return `${diffD}d trước`;
-  return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+  return new Date(iso).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
 }
 
-// ---- type badge for feed ----
+// ---- feed badges ----
 const TYPE_LABELS: Record<string, string> = {
   price_notification: "Thông báo giá",
   regulation: "Quy định",
@@ -42,46 +40,133 @@ const TYPE_COLORS: Record<string, string> = {
   decision: "bg-emerald-500/10 text-emerald-300",
 };
 
-// ---- AI Command Center quick actions ----
-const AI_COMMANDS = [
-  {
-    icon: "🔍",
-    label: "Review Workbook",
-    prompt: "Review toàn bộ workbook: kiểm tra công thức, giá, trùng lặp, ước tính sai lệch",
-    color: "from-blue-500/10 to-blue-600/5 border-blue-700/30",
-  },
-  {
-    icon: "💰",
-    label: "Cập nhật giá",
-    prompt: "Tìm và cập nhật giá vật liệu mới nhất từ nguồn chính thức cho toàn bộ workspace",
-    color: "from-emerald-500/10 to-emerald-600/5 border-emerald-700/30",
-  },
-  {
-    icon: "📋",
-    label: "Phân tích BOQ",
-    prompt: "Phân tích BOQ chi tiết: kiểm tra định mức, đơn giá, phát hiện mục thiếu",
-    color: "from-violet-500/10 to-violet-600/5 border-violet-700/30",
-  },
-  {
-    icon: "🔢",
-    label: "Tra mã hiệu",
-    prompt: "Tra cứu mã hiệu công tác xây dựng theo định mức hiện hành",
-    color: "from-amber-500/10 to-amber-600/5 border-amber-700/30",
-  },
-  {
-    icon: "📐",
-    label: "Tối ưu dự toán",
-    prompt: "Phân tích và đề xuất tối ưu hóa dự toán: cắt giảm chi phí, điều chỉnh khối lượng",
-    color: "from-rose-500/10 to-rose-600/5 border-rose-700/30",
-  },
-  {
-    icon: "📜",
-    label: "Văn bản pháp lý",
-    prompt: "Tìm và tóm tắt văn bản pháp luật xây dựng mới nhất liên quan đến dự toán",
-    color: "from-cyan-500/10 to-cyan-600/5 border-cyan-700/30",
-  },
-];
+// ───────────────────────── Feed Detail Modal ─────────────────────────
+// (Kept as-is — not a workspace action, just a document viewer)
+function FeedDetailModal({
+  item,
+  onClose,
+  estimates,
+}: {
+  item: OfficialFeedItem;
+  onClose: () => void;
+  estimates: EstimateListItem[];
+}) {
+  const router = useRouter();
+  const stars = Math.min(5, Math.round(item.trustScore / 20));
+  const targetId = estimates[0]?.id;
 
+  function fire(prompt: string) {
+    if (!targetId) return;
+    setPendingPrompt({ estimateId: targetId, message: prompt, files: [] });
+    onClose();
+    router.push(`/estimate/${targetId}`);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex-1">
+            <span
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px]",
+                TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400",
+              )}
+            >
+              {TYPE_LABELS[item.type] ?? item.type}
+            </span>
+            <h2 className="mt-2 text-[13px] font-semibold leading-snug text-zinc-100">
+              {item.title}
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="ml-2 shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-500 hover:text-zinc-300"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-[11px]">
+          <div>
+            <span className="text-zinc-500">Nguồn</span>
+            <div className="mt-0.5 font-medium text-zinc-300">{item.source}</div>
+          </div>
+          <div>
+            <span className="text-zinc-500">Khu vực</span>
+            <div className="mt-0.5 font-medium text-zinc-300">{item.region}</div>
+          </div>
+          {item.issuedDate && (
+            <div>
+              <span className="text-zinc-500">Ban hành</span>
+              <div className="mt-0.5 font-medium text-zinc-300">{item.issuedDate}</div>
+            </div>
+          )}
+          {item.effectiveDate && (
+            <div>
+              <span className="text-zinc-500">Hiệu lực</span>
+              <div className="mt-0.5 font-medium text-zinc-300">{item.effectiveDate}</div>
+            </div>
+          )}
+          <div className="col-span-2">
+            <span className="text-zinc-500">Độ tin cậy</span>
+            <div className="mt-0.5 flex items-center gap-1">
+              {Array.from({ length: 5 }, (_, i) => (
+                <span key={i} className={i < stars ? "text-amber-400" : "text-zinc-700"}>★</span>
+              ))}
+              <span className="ml-1 text-zinc-500">{item.trustScore}/100</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {item.url && (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 text-[12px] text-zinc-300 transition-colors hover:bg-zinc-700"
+            >
+              📄 Xem văn bản gốc
+            </a>
+          )}
+          {targetId ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() =>
+                  fire(`Giải thích nội dung văn bản: "${item.title}" từ ${item.source}. Tóm tắt điểm chính và ảnh hưởng thực tế đến dự toán xây dựng.`)
+                }
+                className="rounded-lg bg-violet-600/90 py-2.5 text-[12px] font-medium text-white transition-colors hover:bg-violet-500"
+              >
+                ✨ AI Giải thích
+              </button>
+              <button
+                onClick={() =>
+                  fire(`Áp dụng quy định và giá từ văn bản "${item.title}" (${item.source}) vào workspace. Sinh Proposal cập nhật trước khi áp dụng.`)
+                }
+                className="rounded-lg bg-emerald-600/90 py-2.5 text-[12px] font-medium text-white transition-colors hover:bg-emerald-500"
+              >
+                ⚡ Áp dụng vào WS
+              </button>
+            </div>
+          ) : (
+            <p className="text-center text-[11px] text-zinc-500">
+              Tạo workspace để dùng AI Giải thích và Áp dụng
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── Main page ─────────────────────────
 export default function HomePage() {
   const { t } = useT();
   const toast = useToast();
@@ -91,22 +176,55 @@ export default function HomePage() {
   const [feed, setFeed] = useState<OfficialFeedItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [cmdCreating, setCmdCreating] = useState<string | null>(null);
+  const [feedDetail, setFeedDetail] = useState<OfficialFeedItem | null>(null);
+  // Pending action waiting for workspace selection (when multiple workspaces exist)
+  const [pendingAction, setPendingAction] = useState<{
+    type: TaskType;
+    params?: Record<string, string>;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
     api.listEstimates().then((e) => alive && setEstimates(e)).catch(() => {});
-    api.getHomeFeed()
+    api
+      .getHomeFeed()
       .then((f) => { if (alive) { setFeed(f); setFeedLoading(false); } })
       .catch(() => { if (alive) setFeedLoading(false); });
     return () => { alive = false; };
   }, []);
 
-  async function createWorkspace(name?: string) {
+  // Navigate to a specific workspace with a task card.
+  function goWithTask(id: string, type: TaskType, params?: Record<string, string>) {
+    setPendingTask({ estimateId: id, type, params: params ?? {} });
+    setPendingAction(null);
+    router.push(`/estimate/${id}`);
+  }
+
+  // Click action → if 0 workspaces: create new; if 1: go directly; if many: show picker.
+  async function triggerAction(type: TaskType, params?: Record<string, string>) {
+    if (estimates.length === 0) {
+      setCreating(true);
+      try {
+        const est = await api.createEstimate(t("home.defaultName"));
+        setPendingTask({ estimateId: est.id, type, params: params ?? {} });
+        router.push(`/estimate/${est.id}`);
+      } catch (err) {
+        toast.error("Lỗi", (err as ApiError).message);
+        setCreating(false);
+      }
+    } else if (estimates.length === 1) {
+      goWithTask(estimates[0].id, type, params);
+    } else {
+      // Multiple workspaces → show inline picker
+      setPendingAction({ type, params });
+    }
+  }
+
+  async function createWorkspace() {
     if (creating) return;
     setCreating(true);
     try {
-      const est = await api.createEstimate(name || t("home.defaultName"));
+      const est = await api.createEstimate(t("home.defaultName"));
       router.push(`/estimate/${est.id}`);
     } catch (err) {
       toast.error(t("dashboard.createFailed"), (err as ApiError).message);
@@ -114,159 +232,231 @@ export default function HomePage() {
     }
   }
 
-  async function runCommand(cmd: typeof AI_COMMANDS[0]) {
-    if (cmdCreating) return;
-    setCmdCreating(cmd.label);
-    try {
-      let targetId: string;
-      if (estimates.length > 0) {
-        targetId = estimates[0].id;
-      } else {
-        const est = await api.createEstimate(t("home.defaultName"));
-        targetId = est.id;
-      }
-      setPendingPrompt({ estimateId: targetId, message: cmd.prompt, files: [] });
-      router.push(`/estimate/${targetId}`);
-    } catch (err) {
-      toast.error("Lỗi", (err as ApiError).message);
-      setCmdCreating(null);
-    }
-  }
-
   // KPIs
-  const totalBudget = estimates.reduce((s, e) => s + (e.costs?.total ?? 0), 0);
-  const totalWorkspaces = estimates.length;
-  const totalItems = estimates.reduce((s, e) => s + (e.takeoffCount ?? 0), 0);
-  const recentCount = estimates.filter(
-    (e) => Date.now() - new Date(e.updatedAt).getTime() < 7 * 86_400_000
-  ).length;
+  const officialUpdates = feed.length;
+  const needReview = estimates.filter((e) => e.takeoffCount > 0).length;
+  const totalValue = estimates.reduce((s, e) => s + (e.costs?.total ?? 0), 0);
+  const healthyCount = estimates.filter((e) => e.itemCount > 0 && (e.costs?.total ?? 0) > 0).length;
+  const healthPct = estimates.length > 0 ? Math.round((healthyCount / estimates.length) * 100) : 0;
 
-  const KPI_DATA = [
-    { icon: "📁", label: "Workspaces", value: totalWorkspaces.toString(), sub: `${recentCount} hoạt động tuần này` },
-    { icon: "💰", label: "Tổng ngân sách", value: totalBudget > 0 ? `${fmt(totalBudget)} VNĐ` : "—", sub: "trên tất cả workspace" },
-    { icon: "📋", label: "Công tác", value: totalItems.toString(), sub: "tổng số hạng mục" },
-    { icon: "🧠", label: "AI sẵn sàng", value: "Active", sub: "Gemini 2.5 Flash" },
-  ];
-
-  // Estimates needing review (those with more items = more complex)
   const reviewQueue = estimates
     .filter((e) => e.takeoffCount > 0)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 3);
 
+  const TASK_LABEL: Record<string, string> = {
+    review: "Review Workbook",
+    price_update: "Cập nhật giá",
+    code_lookup: "Tra mã hiệu",
+    boq_analysis: "Phân tích BOQ",
+    optimize: "Tối ưu",
+    legal: "Văn bản pháp lý",
+  };
+
   return (
     <div className="flex h-full overflow-hidden">
-      {/* ── Main scroll area ── */}
+      {feedDetail && (
+        <FeedDetailModal
+          item={feedDetail}
+          onClose={() => setFeedDetail(null)}
+          estimates={estimates}
+        />
+      )}
+
+      {/* Workspace picker dialog */}
+      {pendingAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setPendingAction(null)}
+          />
+          {/* Dialog */}
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+              <div>
+                <p className="text-[13px] font-semibold text-zinc-100">
+                  Chọn workspace
+                </p>
+                <p className="mt-0.5 text-[11px] text-zinc-500">
+                  Mở với tác vụ:{" "}
+                  <span className="text-accent-400">
+                    {TASK_LABEL[pendingAction.type] ?? pendingAction.type}
+                  </span>
+                </p>
+              </div>
+              <button
+                onClick={() => setPendingAction(null)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* List */}
+            <div className="max-h-72 overflow-y-auto p-2">
+              {estimates.map((est) => (
+                <button
+                  key={est.id}
+                  onClick={() =>
+                    goWithTask(est.id, pendingAction.type, pendingAction.params)
+                  }
+                  className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-4 py-3 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/70"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-base group-hover:bg-zinc-700">
+                    📋
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium text-zinc-200 group-hover:text-white">
+                      {est.name}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-zinc-500">
+                      {est.takeoffCount} công tác · {fmtDate(est.updatedAt)}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-[12px] text-accent-500 opacity-0 transition-opacity group-hover:opacity-100">
+                    Mở →
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-zinc-800 px-5 py-3">
+              <button
+                onClick={() => {
+                  setPendingAction(null);
+                  createWorkspace();
+                }}
+                disabled={creating}
+                className="flex items-center gap-1.5 text-[12px] text-zinc-500 transition-colors hover:text-accent-400 disabled:opacity-40"
+              >
+                <span>＋</span> Tạo workspace mới
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Main ── */}
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl space-y-6 p-6">
 
           {/* KPI row */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {KPI_DATA.map((kpi) => (
-              <div
-                key={kpi.label}
-                className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4"
-              >
-                <div className="mb-2 text-xl">{kpi.icon}</div>
-                <div className="text-[11px] text-zinc-500">{kpi.label}</div>
-                <div className="text-base font-semibold text-zinc-100">{kpi.value}</div>
-                <div className="mt-0.5 text-[10px] text-zinc-600">{kpi.sub}</div>
+            <button
+              onClick={() => document.getElementById("official-feed")?.scrollIntoView({ behavior: "smooth" })}
+              className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900"
+            >
+              <div className="mb-2 flex items-center gap-1.5">
+                <span className="text-base">📡</span>
+                <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-400">
+                  Live
+                </span>
               </div>
-            ))}
+              <div className="text-[10px] text-zinc-500">Official Updates</div>
+              <div className="text-lg font-semibold text-zinc-100">
+                {feedLoading ? "—" : officialUpdates}
+              </div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">văn bản mới</div>
+            </button>
+
+            <button
+              onClick={() => needReview > 0 && triggerAction("review")}
+              className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-left transition-colors hover:border-amber-700/40 hover:bg-amber-500/5"
+            >
+              <div className="mb-2 text-base">⚠️</div>
+              <div className="text-[10px] text-zinc-500">Need Review</div>
+              <div className={cn("text-lg font-semibold", needReview > 0 ? "text-amber-400" : "text-zinc-100")}>
+                {needReview}
+              </div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">workspace cần kiểm tra</div>
+            </button>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <div className="mb-2 text-base">📋</div>
+              <div className="text-[10px] text-zinc-500">Pending Proposal</div>
+              <div className="text-lg font-semibold text-zinc-500">—</div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">chưa áp dụng</div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <div className="mb-2 text-base">💚</div>
+              <div className="text-[10px] text-zinc-500">Workbook Health</div>
+              <div
+                className={cn(
+                  "text-lg font-semibold",
+                  healthPct >= 70 ? "text-emerald-400" : healthPct > 0 ? "text-amber-400" : "text-zinc-500",
+                )}
+              >
+                {estimates.length > 0 ? `${healthPct}%` : "—"}
+              </div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">
+                {healthyCount}/{estimates.length} workspace
+              </div>
+            </div>
           </div>
 
-          {/* AI Command Center */}
+          {/* Workspace Actions */}
           <section>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-base">🧠</span>
-              <h2 className="text-sm font-semibold text-zinc-200">AI Command Center</h2>
-              <span className="rounded-full border border-accent-700/40 bg-accent-500/10 px-2 py-0.5 text-[10px] text-accent-300">
-                Agent mode
-              </span>
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-base">⚡</span>
+              <h2 className="text-sm font-semibold text-zinc-200">Workspace Actions</h2>
+              <span className="text-[11px] text-zinc-600">— click để mở Agent Console</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {AI_COMMANDS.map((cmd) => (
+
+            {/* Primary — 2 large cards */}
+            <div className="mb-2.5 grid grid-cols-2 gap-3">
+              <button
+                onClick={() => triggerAction("review")}
+                className="group rounded-xl border border-blue-700/30 bg-gradient-to-br from-blue-500/10 to-blue-600/5 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-blue-600/50 hover:shadow-lg hover:shadow-blue-900/20"
+              >
+                <div className="mb-3 text-2xl">🔍</div>
+                <div className="text-[14px] font-semibold text-zinc-100">Review Workbook</div>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  AI kiểm tra toàn bộ — lỗi giá, trùng lặp, bất thường
+                </p>
+                <div className="mt-3 text-[11px] font-medium text-blue-400 group-hover:text-blue-300">
+                  Review Agent →
+                </div>
+              </button>
+
+              <button
+                onClick={() => triggerAction("price_update", { province: "TP.HCM" })}
+                className="group rounded-xl border border-emerald-700/30 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-600/50 hover:shadow-lg hover:shadow-emerald-900/20"
+              >
+                <div className="mb-3 text-2xl">💰</div>
+                <div className="text-[14px] font-semibold text-zinc-100">Cập nhật giá</div>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Tra cứu giá mới từ Sở XD → so sánh → Proposal
+                </p>
+                <div className="mt-3 text-[11px] font-medium text-emerald-400 group-hover:text-emerald-300">
+                  Price Update Agent →
+                </div>
+              </button>
+            </div>
+
+            {/* Secondary — 4 smaller cards */}
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { type: "code_lookup" as TaskType,  icon: "🔢", label: "Tra mã hiệu",   sub: "Định mức" },
+                { type: "boq_analysis" as TaskType, icon: "📊", label: "Phân tích BOQ", sub: "Chi phí" },
+                { type: "optimize" as TaskType,     icon: "✨", label: "Tối ưu",         sub: "Tiết kiệm" },
+                { type: "legal" as TaskType,        icon: "📜", label: "Văn bản",        sub: "Pháp lý" },
+              ].map((a) => (
                 <button
-                  key={cmd.label}
-                  onClick={() => runCommand(cmd)}
-                  disabled={!!cmdCreating}
-                  className={cn(
-                    "rounded-xl border bg-gradient-to-br p-3.5 text-left transition-all hover:-translate-y-px hover:shadow-lg disabled:opacity-60",
-                    cmd.color
-                  )}
+                  key={a.type}
+                  onClick={() => triggerAction(a.type)}
+                  className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-zinc-700 hover:bg-zinc-800/60"
                 >
-                  <div className="mb-1.5 text-xl">{cmd.icon}</div>
-                  <div className="text-[13px] font-medium text-zinc-200">
-                    {cmdCreating === cmd.label ? (
-                      <span className="animate-pulse">Đang mở...</span>
-                    ) : (
-                      cmd.label
-                    )}
-                  </div>
+                  <div className="mb-2 text-lg">{a.icon}</div>
+                  <div className="text-[12px] font-medium text-zinc-300">{a.label}</div>
+                  <div className="mt-0.5 text-[10px] text-zinc-600">{a.sub}</div>
                 </button>
               ))}
             </div>
-          </section>
 
-          {/* Create Workspace */}
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-base">➕</span>
-              <h2 className="text-sm font-semibold text-zinc-200">Tạo Workspace</h2>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <button
-                onClick={() => createWorkspace()}
-                disabled={creating}
-                className="flex items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-900/40 p-4 text-left transition-colors hover:border-accent-600 hover:bg-accent-500/5 disabled:opacity-60"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-500/15 text-accent-300">
-                  ✨
-                </span>
-                <div>
-                  <div className="text-[13px] font-medium text-zinc-200">Workspace trống</div>
-                  <div className="text-[11px] text-zinc-500">Bắt đầu từ đầu</div>
-                </div>
-              </button>
-              <button
-                onClick={() => {
-                  setPendingPrompt({ estimateId: "__new__", message: "Import và phân tích file Excel này", files: [] });
-                  createWorkspace("Import từ Excel");
-                }}
-                disabled={creating}
-                className="flex items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-900/40 p-4 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-800/40 disabled:opacity-60"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-zinc-300">
-                  📥
-                </span>
-                <div>
-                  <div className="text-[13px] font-medium text-zinc-200">Import Excel</div>
-                  <div className="text-[11px] text-zinc-500">Từ file dự toán có sẵn</div>
-                </div>
-              </button>
-              <button
-                onClick={() => {
-                  const prompt = "Tạo dự toán mẫu cho công trình nhà ở dân dụng 3 tầng, diện tích 120m², khu vực TP.HCM";
-                  if (estimates.length > 0) {
-                    setPendingPrompt({ estimateId: estimates[0].id, message: prompt, files: [] });
-                    router.push(`/estimate/${estimates[0].id}`);
-                  } else {
-                    setPendingPrompt({ estimateId: "__new__", message: prompt, files: [] });
-                    createWorkspace("Dự toán mẫu nhà ở");
-                  }
-                }}
-                disabled={creating}
-                className="flex items-center gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-900/40 p-4 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-800/40 disabled:opacity-60"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-zinc-300">
-                  📄
-                </span>
-                <div>
-                  <div className="text-[13px] font-medium text-zinc-200">Từ mẫu AI</div>
-                  <div className="text-[11px] text-zinc-500">AI tạo dự toán mẫu</div>
-                </div>
-              </button>
-            </div>
           </section>
 
           {/* Continue Working */}
@@ -281,42 +471,60 @@ export default function HomePage() {
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {estimates.slice(0, 6).map((est) => (
-                  <button
-                    key={est.id}
-                    onClick={() => router.push(`/estimate/${est.id}`)}
-                    className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3.5 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
-                  >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-base">
-                      📋
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-zinc-200">{est.name}</div>
-                      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-                        <span>{est.takeoffCount} công tác</span>
-                        {est.costs?.total > 0 && (
-                          <>
-                            <span>·</span>
-                            <span>{fmt(est.costs.total)} VNĐ</span>
-                          </>
-                        )}
+                  <div key={est.id} className="group">
+                    <button
+                      onClick={() => router.push(`/estimate/${est.id}`)}
+                      className="flex w-full items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3.5 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/50"
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-base">
+                        {est.takeoffCount > 0 ? "📋" : "📄"}
                       </div>
-                    </div>
-                    <span className="shrink-0 text-[11px] text-zinc-600">
-                      {fmtDate(est.updatedAt)}
-                    </span>
-                  </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium text-zinc-200">
+                          {est.name}
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                          <span>{est.takeoffCount} công tác</span>
+                          {(est.costs?.total ?? 0) > 0 && (
+                            <>
+                              <span>·</span>
+                              <span>{fmt(est.costs.total)} VNĐ</span>
+                            </>
+                          )}
+                        </div>
+                        {/* Hover extras */}
+                        <div className="mt-1 hidden items-center gap-2 text-[10px] group-hover:flex">
+                          {(est.costs?.total ?? 0) > 0 ? (
+                            <span className="text-emerald-500">✓ Có giá</span>
+                          ) : (
+                            <span className="text-amber-500">⚠ Chưa có giá</span>
+                          )}
+                          <span className="text-zinc-600">·</span>
+                          <span className="text-zinc-500">
+                            {fmtDate(est.updatedAt)}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-[11px] text-zinc-600 group-hover:hidden">
+                        {fmtDate(est.updatedAt)}
+                      </span>
+                      <span className="hidden shrink-0 text-[11px] text-accent-400 group-hover:block">
+                        Mở →
+                      </span>
+                    </button>
+                  </div>
                 ))}
               </div>
             </section>
           )}
 
-          {/* Recent Activity */}
+          {/* Empty state */}
           {estimates.length === 0 && (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800 py-16 text-center">
               <div className="mb-3 text-4xl">🏗️</div>
               <h3 className="text-sm font-medium text-zinc-300">Chào mừng đến GenSpec</h3>
               <p className="mt-1 text-xs text-zinc-500">
-                Tạo workspace đầu tiên hoặc dùng AI Command Center để bắt đầu
+                Tạo workspace đầu tiên để bắt đầu lập dự toán
               </p>
               <button
                 onClick={() => createWorkspace()}
@@ -330,7 +538,10 @@ export default function HomePage() {
       </div>
 
       {/* ── Right panel ── */}
-      <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-zinc-800 xl:block">
+      <aside
+        id="official-feed"
+        className="hidden w-72 shrink-0 overflow-y-auto border-l border-zinc-800 xl:block"
+      >
         <div className="space-y-5 p-4">
 
           {/* Official Feed */}
@@ -358,38 +569,29 @@ export default function HomePage() {
             ) : (
               <div className="space-y-2">
                 {feed.map((item, i) => (
-                  <div
+                  <button
                     key={i}
-                    className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3"
+                    onClick={() => setFeedDetail(item)}
+                    className="w-full rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
                   >
-                    <div className="mb-1.5 flex items-start gap-2">
+                    <div className="mb-1.5 flex items-center gap-2">
                       <span
                         className={cn(
                           "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
-                          TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400"
+                          TYPE_COLORS[item.type] ?? "bg-zinc-800 text-zinc-400",
                         )}
                       >
                         {TYPE_LABELS[item.type] ?? item.type}
                       </span>
-                      <span className="flex items-center gap-1 text-[10px] text-zinc-600">
-                        {Array.from({ length: Math.round(item.trustScore * 5) }, (_, j) => (
-                          <span key={j} className="text-amber-400">★</span>
-                        ))}
+                      <span className="ml-auto text-[10px] text-amber-500/80">
+                        {Array.from(
+                          { length: Math.min(5, Math.round(item.trustScore / 20)) },
+                          (_, j) => <span key={j}>★</span>,
+                        )}
                       </span>
                     </div>
                     <p className="line-clamp-2 text-[12px] leading-snug text-zinc-300">
-                      {item.url ? (
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:text-accent-300 hover:underline"
-                        >
-                          {item.title}
-                        </a>
-                      ) : (
-                        item.title
-                      )}
+                      {item.title}
                     </p>
                     <div className="mt-1.5 flex items-center gap-2 text-[10px] text-zinc-600">
                       <span>{item.region}</span>
@@ -399,8 +601,9 @@ export default function HomePage() {
                           <span>{item.issuedDate}</span>
                         </>
                       )}
+                      <span className="ml-auto text-zinc-700">Xem →</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -418,19 +621,19 @@ export default function HomePage() {
                   <button
                     key={est.id}
                     onClick={() => {
-                      setPendingPrompt({
-                        estimateId: est.id,
-                        message: "Review toàn bộ workbook này: kiểm tra công thức, giá, trùng lặp, phát hiện lỗi",
-                        files: [],
-                      });
+                      setPendingTask({ estimateId: est.id, type: "review" });
                       router.push(`/estimate/${est.id}`);
                     }}
                     className="flex w-full items-center gap-2.5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-2.5 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/60"
                   >
                     <span className="text-sm">📋</span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12px] font-medium text-zinc-300">{est.name}</div>
-                      <div className="text-[10px] text-zinc-600">{est.takeoffCount} công tác</div>
+                      <div className="truncate text-[12px] font-medium text-zinc-300">
+                        {est.name}
+                      </div>
+                      <div className="text-[10px] text-zinc-600">
+                        {est.takeoffCount} công tác
+                      </div>
                     </div>
                     <span className="shrink-0 text-[10px] text-amber-400">Review →</span>
                   </button>
@@ -439,41 +642,46 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Project Intelligence */}
+          {/* Portfolio */}
           <div>
             <div className="mb-3 flex items-center gap-1.5">
-              <span className="text-sm">🧠</span>
-              <span className="text-xs font-semibold text-zinc-200">Project Intelligence</span>
+              <span className="text-sm">📊</span>
+              <span className="text-xs font-semibold text-zinc-200">Portfolio</span>
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              {totalWorkspaces === 0 ? (
+              {estimates.length === 0 ? (
                 <p className="text-center text-[11px] text-zinc-500">
-                  Tạo workspace để xem AI insights
+                  Tạo workspace để xem thống kê
                 </p>
               ) : (
                 <div className="space-y-2.5">
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">Workspaces active</span>
-                    <span className="font-medium text-zinc-300">{totalWorkspaces}</span>
+                    <span className="text-zinc-500">Tổng workspace</span>
+                    <span className="font-medium text-zinc-300">{estimates.length}</span>
                   </div>
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">Tổng ngân sách</span>
+                    <span className="text-zinc-500">Tổng giá trị</span>
                     <span className="font-medium text-zinc-300">
-                      {totalBudget > 0 ? `${fmt(totalBudget)} VNĐ` : "—"}
+                      {totalValue > 0 ? `${fmt(totalValue)} VNĐ` : "—"}
                     </span>
                   </div>
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-zinc-500">Tổng công tác</span>
-                    <span className="font-medium text-zinc-300">{totalItems}</span>
-                  </div>
-                  {estimates.length > 0 && (
-                    <button
-                      onClick={() => router.push(`/estimate/${estimates[0].id}?view=insights`)}
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 py-1.5 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-700"
+                    <span className="text-zinc-500">Health</span>
+                    <span
+                      className={cn(
+                        "font-medium",
+                        healthPct >= 70 ? "text-emerald-400" : "text-amber-400",
+                      )}
                     >
-                      Xem Insights chi tiết →
-                    </button>
-                  )}
+                      {estimates.length > 0 ? `${healthPct}%` : "—"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => router.push(`/estimate/${estimates[0].id}?view=insights`)}
+                    className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 py-1.5 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-700"
+                  >
+                    Insights chi tiết →
+                  </button>
                 </div>
               )}
             </div>

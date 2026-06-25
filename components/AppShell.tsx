@@ -19,13 +19,6 @@ import { ThemeToggle } from "./ui/ThemeToggle";
 import { LanguageToggle } from "./LanguageToggle";
 import { LogoutIcon } from "./ui/icons";
 
-const SIDEBAR_ITEMS = [
-  { icon: "🏠", label: "Dashboard", href: "/" },
-  { icon: "📁", label: "Workspaces", href: "/" },
-  { icon: "🛒", label: "Marketplace", href: "/" },
-  { icon: "📚", label: "Official Data", href: "/" },
-  { icon: "🧠", label: "AI History", href: "/" },
-];
 
 function Avatar({ name }: { name: string }) {
   const initials = name
@@ -51,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [wsOpen, setWsOpen] = useState(false);
 
   // Ctrl+K
   useEffect(() => {
@@ -171,22 +165,86 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Content */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* Icon sidebar */}
-          <aside className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-zinc-800 bg-zinc-950 py-3">
-            {SIDEBAR_ITEMS.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                title={item.label}
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition-colors",
-                  pathname === "/" && item.label === "Dashboard"
-                    ? "bg-accent-500/15 text-accent-300"
-                    : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
-                )}
-              >
-                {item.icon}
-              </Link>
-            ))}
+          <aside className="relative flex w-12 shrink-0 flex-col items-center gap-1 border-r border-zinc-800 bg-zinc-950 py-3">
+            {/* Home */}
+            <Link
+              href="/"
+              title="Home"
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition-colors",
+                pathname === "/"
+                  ? "bg-accent-500/15 text-accent-300"
+                  : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300",
+              )}
+            >
+              🏠
+            </Link>
+
+            {/* Workspaces toggle */}
+            <button
+              title="Workspaces"
+              onClick={() => setWsOpen((o) => !o)}
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition-colors",
+                wsOpen
+                  ? "bg-zinc-800 text-zinc-200"
+                  : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300",
+              )}
+            >
+              📁
+            </button>
+
+            {/* Workspace flyout panel */}
+            {wsOpen && (
+              <div className="absolute left-full top-0 z-30 flex h-full w-56 flex-col border-r border-zinc-800 bg-zinc-950 shadow-2xl">
+                <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2.5">
+                  <span className="text-[12px] font-semibold text-zinc-300">
+                    Workspaces
+                  </span>
+                  <button
+                    onClick={() => setWsOpen(false)}
+                    className="text-[11px] text-zinc-600 hover:text-zinc-400"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                  {estimates.length === 0 ? (
+                    <p className="px-3 py-4 text-center text-[11px] text-zinc-600">
+                      Chưa có workspace
+                    </p>
+                  ) : (
+                    estimates.map((est) => (
+                      <Link
+                        key={est.id}
+                        href={`/estimate/${est.id}`}
+                        onClick={() => setWsOpen(false)}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-2 text-[12px] text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200",
+                          pathname === `/estimate/${est.id}` &&
+                            "bg-zinc-800/60 text-zinc-200",
+                        )}
+                      >
+                        <span className="shrink-0 text-sm">📋</span>
+                        <span className="truncate">{est.name}</span>
+                      </Link>
+                    ))
+                  )}
+                </div>
+                <div className="border-t border-zinc-800 px-3 py-2">
+                  <button
+                    onClick={() => {
+                      setModalOpen(true);
+                      setWsOpen(false);
+                    }}
+                    className="flex items-center gap-1.5 text-[11px] text-accent-400 transition-colors hover:text-accent-300"
+                  >
+                    <span>＋</span> New Workspace
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="mt-auto">
               <button
                 title="Settings"
@@ -196,6 +254,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
           </aside>
+
+          {/* Backdrop to close workspace panel */}
+          {wsOpen && (
+            <div
+              className="fixed inset-0 z-20"
+              onClick={() => setWsOpen(false)}
+            />
+          )}
 
           {/* Page */}
           <main className="flex-1 overflow-hidden">{children}</main>
