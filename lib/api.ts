@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "https://genspec-api.onrender.com";
+  process.env.NEXT_PUBLIC_API_URL ?? "https://genspec-api-production-9f98.up.railway.app";
 
 export class ApiError extends Error {
   statusCode: number;
