@@ -80,6 +80,7 @@ export function AgentConsole({
 
   const abortRef = useRef<AbortController | null>(null);
   const pendingFinalizeRef = useRef<(() => void) | null>(null);
+  const hasTokensRef = useRef(false);
   const idRef = useRef(0);
   const estimateRef = useRef(estimate);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -225,6 +226,7 @@ export function AgentConsole({
     setLiveSteps([]);
     setLiveText("");
     setStreaming(true);
+    hasTokensRef.current = false;
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -238,7 +240,10 @@ export function AgentConsole({
         {
           signal: ctrl.signal,
           editPermission,
-          onToken: (t: string) => setLiveText((prev) => prev + t),
+          onToken: (t: string) => {
+            hasTokensRef.current = true;
+            setLiveText((prev) => prev + t);
+          },
           onStep: (s) =>
             setLiveSteps((prev) => [
               ...prev,
@@ -267,8 +272,9 @@ export function AgentConsole({
               };
               const nextFinalThread = [...nextThread, assistantMsg];
               finalThread = nextFinalThread;
-              // If no tokens arrived (buffered), seed liveText with full message for animation
-              if (!liveText && p.message) setLiveText(p.message);
+              // Seed liveText only when no tokens arrived (proxy-buffered response).
+              // Use a ref — closure captures liveText="" from send() start, making !liveText always true.
+              if (!hasTokensRef.current && p.message) setLiveText(p.message);
               pendingFinalizeRef.current = () => {
                 setThread(nextFinalThread);
                 setLiveText("");
