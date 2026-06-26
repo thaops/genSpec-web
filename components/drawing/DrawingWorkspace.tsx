@@ -11,6 +11,40 @@ import { DrawingToolbar, type DrawingTool } from "./DrawingToolbar";
 import { Spinner } from "@/components/ui/Button";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 
+const PARSE_STATUS_LABELS: Record<string, string> = {
+  queued:     "Đang xếp hàng xử lý...",
+  converting: "Đang chuyển đổi DWG → DXF...",
+  parsing:    "Đang đọc bản vẽ...",
+  detecting:  "Đang phân tích đối tượng...",
+  indexing:   "Đang tạo search index...",
+  graph:      "Đang xây dựng relationship graph...",
+  failed:     "Xử lý thất bại",
+};
+
+function DrawingProcessingState({ drawing }: { drawing: Drawing }) {
+  const status = drawing.parseStatus ?? "queued";
+  const isFailed = status === "failed";
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
+      {isFailed ? (
+        <>
+          <span className="text-2xl">⚠️</span>
+          <p className="text-sm text-rose-400">Xử lý thất bại</p>
+          {drawing.parseError && (
+            <p className="text-xs text-zinc-600 max-w-xs text-center">{drawing.parseError}</p>
+          )}
+        </>
+      ) : (
+        <>
+          <Spinner className="h-6 w-6" />
+          <p className="text-sm">{PARSE_STATUS_LABELS[status] ?? "Đang xử lý..."}</p>
+          <p className="text-xs text-zinc-600">Trang sẽ tự refresh khi xong</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export interface DrawingViewportInfo {
   drawingId: string;
   page: number;
@@ -143,16 +177,19 @@ export function DrawingWorkspace({
     );
   }
 
-  const isPdf = activeDrawing.type === "pdf";
-  // DWG uses convertedUrl (DXF after server conversion); raw DWG is binary and unreadable by dxf-viewer
-  const dxfUrl = activeDrawing.type === "dxf"
-    ? activeDrawing.url
-    : activeDrawing.type === "dwg"
-      ? activeDrawing.convertedUrl
-      : undefined;
-  const isDxf = !!dxfUrl;
-  const isDwgConverting = activeDrawing.type === "dwg" && !activeDrawing.convertedUrl;
-  const isImage = activeDrawing.type === "image";
+  const isReady   = !activeDrawing.parseStatus || activeDrawing.parseStatus === "ready";
+  const isProcessing = !isReady;
+
+  const isPdf = isReady && activeDrawing.type === "pdf";
+  const dxfUrl = isReady
+    ? activeDrawing.type === "dxf"
+      ? activeDrawing.url
+      : activeDrawing.type === "dwg"
+        ? activeDrawing.convertedUrl
+        : undefined
+    : undefined;
+  const isDxf  = !!dxfUrl;
+  const isImage = isReady && activeDrawing.type === "image";
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -204,12 +241,8 @@ export function DrawingWorkspace({
               highlightObjectIds={objects.map((o) => o.id)}
             />
           )}
-          {isDwgConverting && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
-              <Spinner className="h-6 w-6" />
-              <p className="text-sm">Đang chuyển đổi DWG sang DXF...</p>
-              <p className="text-xs text-zinc-600">File sẽ hiển thị sau khi convert xong</p>
-            </div>
+          {isProcessing && (
+            <DrawingProcessingState drawing={activeDrawing} />
           )}
           {isImage && (
             <div className="flex items-center justify-center h-full bg-zinc-900/50 p-4">

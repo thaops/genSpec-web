@@ -1,19 +1,23 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import type { Drawing } from "@/lib/types";
 import { api, ApiError } from "@/lib/api";
 import { Spinner } from "@/components/ui/Button";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 
 const ACCEPTED = ".pdf,.dxf,.dwg,.jpg,.jpeg,.png";
-const FILE_ICONS: Record<string, string> = {
-  pdf: "📄",
-  dxf: "📐",
-  dwg: "📐",
-  jpg: "🖼️",
-  jpeg: "🖼️",
-  png: "🖼️",
+
+const STEP_LABELS: Record<string, string> = {
+  queued:     "Đã tải lên, đang xếp hàng...",
+  downloading:"Đang tải file...",
+  converting: "Đang chuyển đổi DWG → DXF...",
+  parsing:    "Đang đọc bản vẽ...",
+  detecting:  "Đang phân tích đối tượng...",
+  indexing:   "Đang tạo search index...",
+  graph:      "Đang xây dựng relationship graph...",
+  ready:      "Bản vẽ sẵn sàng!",
+  failed:     "Xử lý thất bại",
 };
 
 interface DrawingUploadProps {
@@ -22,45 +26,100 @@ interface DrawingUploadProps {
 }
 
 export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
+  const inputRef    = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging]   = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [stepMsg,   setStepMsg]   = useState<string | null>(null);
+  const [percent,   setPercent]   = useState(0);
+  const [error,     setError]     = useState<string | null>(null);
 
   async function handleFile(file: File) {
     setUploading(true);
     setError(null);
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    const isDwg = ext === "dwg";
-    const jobType = isDwg ? "dwg_convert" : ext === "pdf" ? "pdf_parse" : "dxf_parse";
-    const jobMsg = isDwg ? "Convert DWG → DXF..." : `Parse ${ext.toUpperCase()}...`;
-    setProgress(jobMsg);
+    setStepMsg("Đang tải lên...");
+    setPercent(5);
 
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     const job = addJob({
       id: crypto.randomUUID(),
-      type: jobType,
+      type: ext === "dwg" ? "dwg_convert" : ext === "pdf" ? "pdf_parse" : "dxf_parse",
       status: "processing",
-      progress: 20,
-      message: jobMsg,
+      progress: 5,
+      message: `Đang xử lý ${file.name}`,
       estimateId,
     });
 
     try {
-      const drawing = await api.uploadDrawing(estimateId, file);
-      updateJob(job.id, { status: "done", progress: 100, message: `${file.name} sẵn sàng` });
-      setProgress("Xử lý xong!");
-      setTimeout(() => {
-        setProgress(null);
-        setUploading(false);
-        onUploaded(drawing);
-      }, 600);
+      // Upload returns immediately with drawingId + jobId
+      const result = await api.uploadDrawing(estimateId, file) as Drawing & { jobId?: string };
+      const jobId  = result.jobId;
+
+      setStepMsg(STEP_LABELS.queued);
+      setPercent(10);
+
+      if (!jobId) {
+        // No queue (fallback) — done
+        updateJob(job.id, { status: "done", progress: 100, message: `${file.name} đã tải lên` });
+        finalize(result);
+        return;
+      }
+
+      // Poll job status via SSE
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
+      const es = new EventSource(`${apiBase}/jobs/${jobId}/stream`);
+
+      es.onmessage = (e) => {
+        const data = JSON.parse(e.data) as {
+          state: string;
+          progress: { step: string; message: string; percent: number };
+          failedReason?: string;
+        };
+
+        const p = data.progress ?? {};
+        const step    = p.step ?? data.state;
+        const pct     = p.percent ?? percent;
+        const msg     = STEP_LABELS[step] ?? step;
+
+        setStepMsg(msg);
+        setPercent(pct);
+        updateJob(job.id, { progress: pct, message: `${file.name}: ${msg}` });
+
+        if (data.state === "completed") {
+          es.close();
+          updateJob(job.id, { status: "done", progress: 100, message: `${file.name} sẵn sàng` });
+          finalize({ ...result, parseStatus: "ready" });
+        } else if (data.state === "failed") {
+          es.close();
+          const reason = data.failedReason ?? "Xử lý thất bại";
+          updateJob(job.id, { status: "failed", message: reason });
+          setError(reason);
+          setUploading(false);
+        }
+      };
+
+      es.onerror = () => {
+        es.close();
+        // SSE closed — assume done and refresh
+        updateJob(job.id, { status: "done", progress: 100, message: `${file.name} xong` });
+        finalize(result);
+      };
     } catch (e) {
       updateJob(job.id, { status: "failed", message: (e as ApiError).message });
       setError((e as ApiError).message);
       setUploading(false);
-      setProgress(null);
+      setStepMsg(null);
     }
+  }
+
+  function finalize(drawing: Drawing) {
+    setStepMsg("Bản vẽ sẵn sàng!");
+    setPercent(100);
+    setTimeout(() => {
+      setStepMsg(null);
+      setPercent(0);
+      setUploading(false);
+      onUploaded(drawing);
+    }, 800);
   }
 
   function onDrop(e: React.DragEvent) {
@@ -85,25 +144,26 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
       onDrop={onDrop}
       onClick={() => !uploading && inputRef.current?.click()}
     >
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPTED}
-        className="hidden"
-        onChange={onInputChange}
-      />
+      <input ref={inputRef} type="file" accept={ACCEPTED} className="hidden" onChange={onInputChange} />
 
       {uploading ? (
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-3 w-full px-6">
           <Spinner className="h-6 w-6 text-blue-400" />
-          <p className="text-sm text-zinc-400">{progress}</p>
+          <p className="text-sm text-zinc-300 text-center">{stepMsg}</p>
+          {percent > 0 && (
+            <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 text-center px-4">
           <span className="text-3xl">📂</span>
           <p className="text-sm text-zinc-300">Kéo thả hoặc click để tải bản vẽ</p>
           <p className="text-xs text-zinc-600">PDF, DXF, DWG, PNG, JPG</p>
-          <p className="text-[10px] text-zinc-700 mt-1">DWG sẽ tự động convert sang DXF</p>
         </div>
       )}
 
