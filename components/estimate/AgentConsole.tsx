@@ -12,7 +12,6 @@ import type {
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
-import { useSmoothStream } from "@/lib/hooks";
 import { CopilotComposer } from "./CopilotComposer";
 import { LiveTimeline, type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
@@ -87,10 +86,9 @@ export function AgentConsole({
   const scrollRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const typed = useSmoothStream(liveText);
   const typedTail =
-    typed.length > 1400 ? "…" + typed.slice(-1400) : typed;
-  const caretActive = streaming && typed.length < liveText.length;
+    liveText.length > 1400 ? "…" + liveText.slice(-1400) : liveText;
+  const caretActive = streaming;
 
   const nextId = () => String(++idRef.current);
   const clockNow = () =>
@@ -177,19 +175,17 @@ export function AgentConsole({
     return () => window.removeEventListener("beforeunload", flush);
   }, [estimate.id, thread]);
 
-  // Finalize after animation catches up with liveText
+  // Finalize as soon as streaming ends — no animation to wait for
   useEffect(() => {
     if (streaming) return;
-    if (!liveText) return;
-    if (typed.length < liveText.length) return;
     if (pendingFinalizeRef.current) {
       pendingFinalizeRef.current();
       pendingFinalizeRef.current = null;
-    } else {
+    } else if (liveText || liveSteps.length) {
       setLiveText("");
       setLiveSteps([]);
     }
-  }, [streaming, typed, liveText]);
+  }, [streaming, liveText, liveSteps.length]);
 
   // Check for pending task on mount — shows Task Card instead of auto-firing
   useEffect(() => {
