@@ -942,7 +942,7 @@ function ChatPanel({
         {/* Keep bubble visible while streaming OR while typewriter animation is still catching up.
             Without this, streaming=false hides the bubble before pendingFinalizeRef fires,
             causing the "all text at once" flash the user sees. */}
-        {(streaming || !!liveText) && (
+        {(streaming || !!typedTail) && (
           <div className="flex animate-slide-up justify-start">
             <div className="max-w-[88%] rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-2.5 text-sm text-zinc-200">
               {/* Step chips — only while actively streaming, before first token */}
