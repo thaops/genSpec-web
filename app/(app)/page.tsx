@@ -9,13 +9,7 @@ import { setPendingTask, type TaskType } from "@/lib/pendingTask";
 import type { EstimateListItem, OfficialFeedItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// ---- formatters ----
-function fmt(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return n.toString();
-}
+// ── Formatters ───────────────────────────────────────────────
 function fmtDate(iso: string) {
   const diffH = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
   const diffD = Math.floor(diffH / 24);
@@ -25,23 +19,40 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
 }
 
-// ---- feed helpers ----
-function domainFavicon(url: string | null) {
-  if (!url) return null;
-  try { return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=64`; } catch { return null; }
+function workspaceStatus(updatedAt: string): { dot: string; label: string } {
+  const diffH = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 3_600_000);
+  if (diffH < 24) return { dot: "bg-emerald-500", label: "Đang làm việc" };
+  if (diffH < 24 * 7) return { dot: "bg-amber-500", label: "Gần đây" };
+  return { dot: "bg-zinc-600", label: "Không hoạt động" };
 }
 
-const LOAI_VAN_BAN: Record<string, string> = {
+// Deterministic placeholder color from string hash
+function placeholderColor(id: string) {
+  const PALETTES = [
+    ["from-blue-900/80", "to-blue-950"],
+    ["from-violet-900/80", "to-violet-950"],
+    ["from-emerald-900/80", "to-emerald-950"],
+    ["from-rose-900/80", "to-rose-950"],
+    ["from-amber-900/80", "to-amber-950"],
+    ["from-cyan-900/80", "to-cyan-950"],
+  ];
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETTES[h % PALETTES.length];
+}
+
+// ── Feed config ──────────────────────────────────────────────
+const FEED_BADGE: Record<string, string> = {
   price_notification: "Thông báo giá",
   regulation: "Quy định",
   circular: "Thông tư",
   decision: "Quyết định",
 };
-const MAU_VAN_BAN: Record<string, string> = {
-  price_notification: "bg-blue-500/10 text-blue-300",
-  regulation: "bg-amber-500/10 text-amber-300",
-  circular: "bg-purple-500/10 text-purple-300",
-  decision: "bg-emerald-500/10 text-emerald-300",
+const FEED_COLOR: Record<string, string> = {
+  price_notification: "text-blue-400 bg-blue-500/10",
+  regulation: "text-amber-400 bg-amber-500/10",
+  circular: "text-purple-400 bg-purple-500/10",
+  decision: "text-emerald-400 bg-emerald-500/10",
 };
 
 const TEN_TAC_VU: Record<string, string> = {
@@ -49,7 +60,134 @@ const TEN_TAC_VU: Record<string, string> = {
   price_update: "Cập nhật giá",
 };
 
-// ───────────────────────── Main page ─────────────────────────
+// ── Workspace Card ────────────────────────────────────────────
+function WorkspaceCard({
+  est,
+  onClick,
+}: {
+  est: EstimateListItem;
+  onClick: () => void;
+}) {
+  const status = workspaceStatus(est.updatedAt);
+  const [colors] = useState(() => placeholderColor(est.id));
+  const [imgErr, setImgErr] = useState(false);
+  const showImg = !!est.thumbnail && !imgErr;
+
+  const initials = est.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+
+  return (
+    <button
+      onClick={onClick}
+      className="group flex w-full flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50 text-left transition-all duration-200 hover:border-zinc-700 hover:bg-zinc-900 hover:shadow-xl hover:shadow-black/40"
+    >
+      {/* Thumbnail */}
+      <div className="relative aspect-video w-full overflow-hidden bg-zinc-950">
+        {showImg ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={est.thumbnail!}
+            alt=""
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+            onError={() => setImgErr(true)}
+          />
+        ) : (
+          <div
+            className={cn(
+              "flex h-full w-full items-center justify-center bg-gradient-to-br",
+              colors[0],
+              colors[1],
+            )}
+          >
+            {initials ? (
+              <span className="text-3xl font-bold text-white/20 select-none">
+                {initials}
+              </span>
+            ) : (
+              <span className="text-4xl opacity-20">🏗️</span>
+            )}
+          </div>
+        )}
+
+        {/* Overlay gradient at bottom for readability */}
+        <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-zinc-950/60 to-transparent" />
+
+        {/* Drawing badge on thumbnail */}
+        {est.drawingCount > 0 && (
+          <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-zinc-300 backdrop-blur-sm">
+            <span>📐</span>
+            <span>{est.drawingCount}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Card body */}
+      <div className="flex flex-1 flex-col gap-2 p-3.5">
+        {/* Name + code */}
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <span className="line-clamp-2 text-[13px] font-semibold leading-snug text-zinc-100 group-hover:text-white">
+              {est.name}
+            </span>
+          </div>
+          {est.projectInfo?.location && (
+            <p className="mt-0.5 truncate text-[11px] text-zinc-600">
+              {est.projectInfo.location}
+            </p>
+          )}
+        </div>
+
+        {/* Stats chips */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="flex items-center gap-1 text-[11px] text-zinc-500">
+            <span>📊</span>
+            <span>{est.itemCount} BOQ</span>
+          </span>
+          {est.drawingCount > 0 && (
+            <span className="flex items-center gap-1 text-[11px] text-zinc-500">
+              <span>📐</span>
+              <span>{est.drawingCount} Drawings</span>
+            </span>
+          )}
+        </div>
+
+        {/* Status + time */}
+        <div className="mt-auto flex items-center justify-between border-t border-zinc-800/60 pt-2.5">
+          <div className="flex items-center gap-1.5">
+            <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
+            <span className="text-[11px] text-zinc-500">{status.label}</span>
+          </div>
+          <span className="text-[11px] text-zinc-600">{fmtDate(est.updatedAt)}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ── Empty state ───────────────────────────────────────────────
+function EmptyState({ onCreate }: { onCreate: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800 py-16 text-center">
+      <div className="mb-3 text-4xl">🏗️</div>
+      <p className="text-[13px] font-medium text-zinc-400">Chào mừng đến GenSpec</p>
+      <p className="mt-1 text-[12px] text-zinc-600">
+        Tạo workspace đầu tiên để bắt đầu lập dự toán
+      </p>
+      <button
+        onClick={onCreate}
+        className="mt-5 rounded-lg bg-accent-600 px-4 py-2 text-[12px] font-medium text-white transition-colors hover:bg-accent-500"
+      >
+        Tạo workspace
+      </button>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────
 export default function HomePage() {
   const { t } = useT();
   const toast = useToast();
@@ -59,6 +197,7 @@ export default function HomePage() {
   const [feed, setFeed] = useState<OfficialFeedItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState("");
   const [pendingAction, setPendingAction] = useState<{
     type: TaskType;
     params?: Record<string, string>;
@@ -129,9 +268,17 @@ export default function HomePage() {
     }
   }
 
+  const filtered = search.trim()
+    ? estimates.filter(
+        (e) =>
+          e.name.toLowerCase().includes(search.toLowerCase()) ||
+          (e.projectInfo?.location ?? "").toLowerCase().includes(search.toLowerCase()),
+      )
+    : estimates;
+
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Workspace picker dialog */}
+      {/* ── Workspace picker dialog ── */}
       {pendingAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -156,7 +303,6 @@ export default function HomePage() {
                 ✕
               </button>
             </div>
-
             <div className="max-h-72 overflow-y-auto p-2">
               {estimates.map((est) => (
                 <button
@@ -164,15 +310,22 @@ export default function HomePage() {
                   onClick={() => goWithTask(est.id, pendingAction.type, pendingAction.params)}
                   className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-4 py-3 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/70"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-base group-hover:bg-zinc-700">
-                    📋
-                  </span>
+                  <div className="relative h-10 w-14 shrink-0 overflow-hidden rounded-lg bg-zinc-800">
+                    {est.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={est.thumbnail} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs text-zinc-600">
+                        🏗️
+                      </div>
+                    )}
+                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-zinc-200 group-hover:text-white">
                       {est.name}
                     </div>
                     <div className="mt-0.5 text-[11px] text-zinc-500">
-                      {est.takeoffCount} công tác · {fmtDate(est.updatedAt)}
+                      {fmtDate(est.updatedAt)}
                     </div>
                   </div>
                   <span className="shrink-0 text-[12px] text-accent-500 opacity-0 transition-opacity group-hover:opacity-100">
@@ -181,7 +334,6 @@ export default function HomePage() {
                 </button>
               ))}
             </div>
-
             <div className="border-t border-zinc-800 px-5 py-3">
               <button
                 onClick={() => { setPendingAction(null); createWorkspace(); }}
@@ -195,203 +347,148 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Nội dung chính ── */}
+      {/* ── Main content ── */}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl space-y-6 p-6">
+        <div className="mx-auto max-w-5xl space-y-8 px-6 py-8">
 
-          {/* Tác vụ nhanh */}
-          <section>
-            <div className="mb-4 flex items-center gap-2">
-              <span className="text-base">⚡</span>
-              <h2 className="text-sm font-semibold text-zinc-200">Tác vụ nhanh</h2>
+          {/* Search + New */}
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">
+                🔎
+              </span>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Tìm workspace..."
+                className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900/60 pl-9 pr-4 text-[13px] text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-700 focus:outline-none"
+              />
             </div>
+            <button
+              onClick={createWorkspace}
+              disabled={creating}
+              className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-accent-600 px-4 text-[13px] font-medium text-white transition-colors hover:bg-accent-500 disabled:opacity-50"
+            >
+              <span>+</span>
+              <span>New Workspace</span>
+            </button>
+          </div>
 
+          {/* Quick Actions */}
+          <section>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+              Quick Actions
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => triggerAction("review")}
-                className="group rounded-xl border border-blue-700/30 bg-gradient-to-br from-blue-500/10 to-blue-600/5 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-blue-600/50 hover:shadow-lg hover:shadow-blue-900/20"
+                className="group flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3.5 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/60"
               >
-                <div className="mb-3 text-2xl">🔍</div>
-                <div className="text-[14px] font-semibold text-zinc-100">Kiểm tra workbook</div>
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  AI kiểm tra toàn bộ — lỗi giá, trùng lặp, bất thường
-                </p>
-                <div className="mt-3 text-[11px] font-medium text-blue-400 group-hover:text-blue-300">
-                  Mở Agent →
+                <span className="text-xl">🔍</span>
+                <div>
+                  <div className="text-[13px] font-medium text-zinc-200 group-hover:text-white">
+                    Review Workbook
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-600">
+                    AI kiểm tra lỗi giá, trùng lặp
+                  </div>
                 </div>
               </button>
 
               <button
                 onClick={() => triggerAction("price_update", { province: "TP.HCM" })}
-                className="group rounded-xl border border-emerald-700/30 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-600/50 hover:shadow-lg hover:shadow-emerald-900/20"
+                className="group flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3.5 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/60"
               >
-                <div className="mb-3 text-2xl">💰</div>
-                <div className="text-[14px] font-semibold text-zinc-100">Cập nhật giá</div>
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  Tra cứu giá mới từ Sở XD → so sánh → đề xuất
-                </p>
-                <div className="mt-3 text-[11px] font-medium text-emerald-400 group-hover:text-emerald-300">
-                  Mở Agent →
+                <span className="text-xl">💰</span>
+                <div>
+                  <div className="text-[13px] font-medium text-zinc-200 group-hover:text-white">
+                    Update Prices
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-600">
+                    Tra giá mới từ Sở XD
+                  </div>
                 </div>
               </button>
             </div>
           </section>
 
-          {/* Tiếp tục làm việc */}
-          {estimates.length > 0 && (
-            <section>
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">📁</span>
-                  <h2 className="text-sm font-semibold text-zinc-200">Tiếp tục làm việc</h2>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-600">{estimates.length} workspace</span>
-                  <button
-                    onClick={createWorkspace}
-                    disabled={creating}
-                    className="flex items-center gap-1 rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-40"
-                  >
-                    <span>＋</span> Tạo mới
-                  </button>
-                </div>
+          {/* Recent Workspaces */}
+          <section>
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+                Recent Workspaces
+              </p>
+              {estimates.length > 0 && (
+                <span className="text-[11px] text-zinc-700">{estimates.length} workspace</span>
+              )}
+            </div>
+
+            {estimates.length === 0 && (
+              <EmptyState onCreate={createWorkspace} />
+            )}
+
+            {estimates.length > 0 && filtered.length === 0 && (
+              <div className="rounded-xl border border-zinc-800 py-10 text-center text-[12px] text-zinc-600">
+                Không tìm thấy &ldquo;{search}&rdquo;
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {estimates.slice(0, 6).map((est) => (
-                  <div key={est.id} className="group">
-                    <button
-                      onClick={() => router.push(`/estimate/${est.id}`)}
-                      className="flex w-full items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3.5 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/50"
-                    >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-base">
-                        {est.takeoffCount > 0 ? "📋" : "📄"}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-zinc-200">
-                          {est.name}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-                          <span>{est.takeoffCount} công tác</span>
-                          {(est.costs?.total ?? 0) > 0 && (
-                            <>
-                              <span>·</span>
-                              <span>{fmt(est.costs.total)} VNĐ</span>
-                            </>
-                          )}
-                        </div>
-                        <div className="mt-1 hidden items-center gap-2 text-[10px] group-hover:flex">
-                          {(est.costs?.total ?? 0) > 0 ? (
-                            <span className="text-emerald-500">✓ Có giá</span>
-                          ) : (
-                            <span className="text-amber-500">⚠ Chưa có giá</span>
-                          )}
-                          <span className="text-zinc-600">·</span>
-                          <span className="text-zinc-500">{fmtDate(est.updatedAt)}</span>
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-[11px] text-zinc-600 group-hover:hidden">
-                        {fmtDate(est.updatedAt)}
-                      </span>
-                      <span className="hidden shrink-0 text-[11px] text-accent-400 group-hover:block">
-                        Mở →
-                      </span>
-                    </button>
-                  </div>
+            )}
+
+            {filtered.length > 0 && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {filtered.slice(0, 9).map((est) => (
+                  <WorkspaceCard
+                    key={est.id}
+                    est={est}
+                    onClick={() => router.push(`/estimate/${est.id}`)}
+                  />
                 ))}
               </div>
-            </section>
-          )}
-
-          {/* Trạng thái trống */}
-          {estimates.length === 0 && (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800 py-16 text-center">
-              <div className="mb-3 text-4xl">🏗️</div>
-              <h3 className="text-sm font-medium text-zinc-300">Chào mừng đến GenSpec</h3>
-              <p className="mt-1 text-xs text-zinc-500">
-                Tạo workspace đầu tiên để bắt đầu lập dự toán
-              </p>
-              <button
-                onClick={() => createWorkspace()}
-                className="mt-4 rounded-lg bg-accent-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-500"
-              >
-                Tạo workspace
-              </button>
-            </div>
-          )}
+            )}
+          </section>
         </div>
       </div>
 
-      {/* ── Cột phải: văn bản mới ── */}
-      <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-zinc-800 xl:block">
+      {/* ── Right sidebar: Knowledge Feed ── */}
+      <aside className="hidden w-60 shrink-0 overflow-y-auto border-l border-zinc-800 xl:block">
         <div className="p-4">
-          <div className="mb-3 flex items-center gap-1.5">
-            <span className="text-sm">📡</span>
-            <span className="text-xs font-semibold text-zinc-200">Văn bản mới</span>
-            <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
-              Live
-            </span>
-          </div>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+            Knowledge Feed
+          </p>
 
           {feedLoading ? (
             <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-16 animate-pulse rounded-lg bg-zinc-800/60" />
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-12 animate-pulse rounded-lg bg-zinc-800/50" />
               ))}
             </div>
           ) : feed.length === 0 ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-center text-[11px] text-zinc-500">
-              Không có dữ liệu
-            </div>
+            <p className="text-[11px] text-zinc-600">Không có dữ liệu</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-px">
               {feed.map((item, i) => (
                 <button
                   key={i}
                   onClick={() => { if (item.url) window.open(item.url, "_blank", "noopener"); }}
-                  className="w-full overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/50 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
+                  className="group w-full rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-zinc-800/60"
                 >
-                  <div className="relative h-20 w-full overflow-hidden">
-                    {item.imageUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.imageUrl}
-                        alt=""
-                        className="absolute inset-0 h-full w-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                      />
+                  <span className={cn(
+                    "inline-block rounded px-1.5 py-0.5 text-[9px] font-medium",
+                    FEED_COLOR[item.type] ?? "text-zinc-400 bg-zinc-800",
+                  )}>
+                    {FEED_BADGE[item.type] ?? item.type}
+                  </span>
+                  <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-zinc-400 group-hover:text-zinc-200">
+                    {item.title}
+                  </p>
+                  <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-700">
+                    <span>{item.region}</span>
+                    {item.issuedDate && (
+                      <>
+                        <span>·</span>
+                        <span>{item.issuedDate}</span>
+                      </>
                     )}
-                    <div className={cn(
-                      "absolute inset-0 flex items-center justify-center gap-2",
-                      item.type === "price_notification" ? "bg-gradient-to-r from-blue-900/50 to-blue-950/70" :
-                      item.type === "circular" ? "bg-gradient-to-r from-purple-900/50 to-purple-950/70" :
-                      item.type === "decision" ? "bg-gradient-to-r from-emerald-900/50 to-emerald-950/70" :
-                      "bg-gradient-to-r from-amber-900/50 to-amber-950/70",
-                      item.imageUrl ? "opacity-0" : "opacity-100",
-                    )}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {domainFavicon(item.url) && <img src={domainFavicon(item.url)!} alt="" className="h-6 w-6 rounded opacity-70" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
-                      <span className="text-[9px] text-zinc-500">{item.source}</span>
-                    </div>
-                  </div>
-                  <div className="p-3">
-                    <div className="mb-1.5 flex items-center gap-2">
-                      <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px]", MAU_VAN_BAN[item.type] ?? "bg-zinc-800 text-zinc-400")}>
-                        {LOAI_VAN_BAN[item.type] ?? item.type}
-                      </span>
-                      <span className="ml-auto text-[10px] text-amber-500/80">
-                        {Array.from({ length: Math.min(5, Math.round(item.trustScore / 20)) }, (_, j) => (
-                          <span key={j}>★</span>
-                        ))}
-                      </span>
-                    </div>
-                    <p className="line-clamp-2 text-[12px] leading-snug text-zinc-300">
-                      {item.title}
-                    </p>
-                    <div className="mt-1.5 flex items-center gap-2 text-[10px] text-zinc-600">
-                      <span>{item.region}</span>
-                      {item.issuedDate && <><span>·</span><span>{item.issuedDate}</span></>}
-                      <span className="ml-auto text-zinc-700">Xem →</span>
-                    </div>
                   </div>
                 </button>
               ))}

@@ -383,6 +383,9 @@ export interface EstimateListItem {
   costs: Costs;
   itemCount: number;
   takeoffCount: number;
+  drawingCount: number;
+  thumbnail: string | null;
+  createdAt: string;
   updatedAt: string;
 }
 
