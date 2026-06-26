@@ -119,13 +119,22 @@ export default function WorkbookEditor({
       applyUniverColors(initIsDark);
       requestAnimationFrame(() => applyUniverColors(themeRef.current === "dark"));
 
-      // Build sheets
+      // Collect workbook-level styles stored on the first sheet after import
+      const collectedStyles: Record<string, any> = {};
+      for (const s of (workbookData.sheets ?? [])) {
+        if (s.data?._styles) Object.assign(collectedStyles, s.data._styles);
+      }
+
+      // Build sheets — spread full Univer sheet data so columnData/rowData/mergeData survive reload
       const sheets: Record<string, any> = {};
       const sheetOrder: string[] = [];
 
       if (workbookData.sheets && workbookData.sheets.length > 0) {
         for (const s of workbookData.sheets) {
+          const { _styles, ...univerSheetData } = s.data ?? {};
+          void _styles; // collected above, don't pass into Univer sheet config
           sheets[s.id] = {
+            ...univerSheetData,
             id: s.id,
             name: s.name,
             cellData: s.data?.cellData ?? {},
@@ -143,6 +152,7 @@ export default function WorkbookEditor({
       univerAPI.createWorkbook({
         id: workbookData.id || "wb",
         name: workbookData.name || "GenSpec",
+        styles: collectedStyles,
         sheets,
         sheetOrder,
       });
@@ -162,9 +172,14 @@ export default function WorkbookEditor({
         const cur = wb.getActiveSheet();
         if (cur) onActiveSheetChange(cur.getSheetId());
 
-        const raw = wb.save();
+        const raw = wb.save() as any;
         if (!raw?.sheets) return;
-        const updated: Sheet[] = Object.keys(raw.sheets).map((key) => {
+        // Persist workbook-level styles in first sheet so they survive save/load cycle
+        const sheetKeys = Object.keys(raw.sheets);
+        if (sheetKeys.length > 0 && raw.styles && Object.keys(raw.styles).length > 0) {
+          raw.sheets[sheetKeys[0]]._styles = raw.styles;
+        }
+        const updated: Sheet[] = sheetKeys.map((key) => {
           const s = raw.sheets[key];
           return { id: s.id || key, name: s.name || "Sheet", data: s };
         });
