@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { Ref } from "react";
 import type {
   ConversationMessage,
@@ -242,7 +243,12 @@ export function AgentConsole({
           editPermission,
           onToken: (t: string) => {
             hasTokensRef.current = true;
-            setLiveText((prev) => prev + t);
+            // flushSync forces React to render immediately after each token
+            // so the typewriter animation updates token-by-token instead of
+            // batching all tokens into one render (React 18 automatic batching).
+            flushSync(() => {
+              setLiveText((prev) => prev + t);
+            });
           },
           onStep: (s) =>
             setLiveSteps((prev) => [
