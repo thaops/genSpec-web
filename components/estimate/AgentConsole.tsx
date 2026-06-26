@@ -573,6 +573,8 @@ export function AgentConsole({
             editPermission={editPermission}
             activeTask={activeTask}
             estimateName={estimate.name}
+            activeSheetId={activeSheetId}
+            selectedRange={selectedRange}
             onSend={send}
             onApplyProposal={applyProposal}
             onDiscardProposal={discardProposal}
@@ -781,12 +783,30 @@ interface ChatPanelProps {
   editPermission: boolean;
   activeTask: PendingTask | null;
   estimateName: string;
+  activeSheetId?: string;
+  selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number };
   onSend: (text?: string, files?: File[]) => void;
   onApplyProposal: (item: ProposalItem) => void;
   onDiscardProposal: (item: ProposalItem) => void;
   onSwitchToProposals: () => void;
   onClearTask: () => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+}
+
+function colLetter(col: number): string {
+  let letter = "";
+  let n = col;
+  do {
+    letter = String.fromCharCode(65 + (n % 26)) + letter;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return letter;
+}
+
+function rangeToA1(r: { startRow: number; startCol: number; endRow: number; endCol: number }): string {
+  const start = `${colLetter(r.startCol)}${r.startRow + 1}`;
+  const end = `${colLetter(r.endCol)}${r.endRow + 1}`;
+  return start === end ? start : `${start}:${end}`;
 }
 
 function ChatPanel({
@@ -800,6 +820,8 @@ function ChatPanel({
   editPermission,
   activeTask,
   estimateName,
+  activeSheetId: _activeSheetId,
+  selectedRange,
   onSend,
   onApplyProposal,
   onDiscardProposal,
@@ -809,6 +831,7 @@ function ChatPanel({
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const selectionLabel = selectedRange ? rangeToA1(selectedRange) : null;
 
   function runTask(prompt: string) {
     onClearTask();
@@ -945,6 +968,15 @@ function ChatPanel({
       )}
 
       <div className="border-t border-zinc-800 p-3">
+        {selectionLabel && (
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="flex items-center gap-1 rounded-md border border-accent-500/30 bg-accent-500/10 px-2 py-0.5 text-[11px] text-accent-300">
+              <span>📍</span>
+              <span className="font-mono font-semibold">{selectionLabel}</span>
+              <span className="text-accent-400/70">đang chọn</span>
+            </span>
+          </div>
+        )}
         <CopilotComposer
           value={input}
           onChange={setInput}
