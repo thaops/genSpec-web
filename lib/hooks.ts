@@ -29,7 +29,8 @@ export function useSmoothStream(
         const tgt = targetRef.current;
         if (cur.length >= tgt.length) return cur;
         const behind = tgt.length - cur.length;
-        const step = Math.max(minChars, Math.round(behind / 6));
+        // Cap at 5 chars/tick so even all-at-once text still animates visibly
+        const step = Math.min(Math.max(minChars, Math.round(behind / 6)), 5);
         return tgt.slice(0, cur.length + step);
       });
     }, speed);

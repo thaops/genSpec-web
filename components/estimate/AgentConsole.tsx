@@ -79,6 +79,7 @@ export function AgentConsole({
   const [activeTask, setActiveTask] = useState<PendingTask | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  const pendingFinalizeRef = useRef<(() => void) | null>(null);
   const idRef = useRef(0);
   const estimateRef = useRef(estimate);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -160,6 +161,20 @@ export function AgentConsole({
   // Cleanup abort on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
+  // Finalize after animation catches up with liveText
+  useEffect(() => {
+    if (streaming) return;
+    if (!liveText) return;
+    if (typed.length < liveText.length) return;
+    if (pendingFinalizeRef.current) {
+      pendingFinalizeRef.current();
+      pendingFinalizeRef.current = null;
+    } else {
+      setLiveText("");
+      setLiveSteps([]);
+    }
+  }, [streaming, typed, liveText]);
+
   // Check for pending task on mount — shows Task Card instead of auto-firing
   useEffect(() => {
     const task = takePendingTask(estimate.id);
@@ -228,7 +243,7 @@ export function AgentConsole({
             }
 
             if (p.actions.length === 0) {
-              // Read / review response — no actions
+              // Read / review response — keep animation alive, finalize after typed catches up
               const assistantMsg: ConversationMessage = {
                 id: msgId,
                 kind: "assistant",
@@ -236,10 +251,18 @@ export function AgentConsole({
                 findings,
                 timestamp: ts,
               };
-              finalThread = [...nextThread, assistantMsg];
-              setThread(finalThread);
+              const nextFinalThread = [...nextThread, assistantMsg];
+              finalThread = nextFinalThread;
+              // If no tokens arrived (buffered), seed liveText with full message for animation
+              if (!liveText && p.message) setLiveText(p.message);
+              pendingFinalizeRef.current = () => {
+                setThread(nextFinalThread);
+                setLiveText("");
+                setLiveSteps([]);
+                saveConversation(nextFinalThread);
+              };
             } else {
-              // Has actions → proper proposal
+              // Has actions → proper proposal, show ProposalCard immediately
               const proposalMsg: ConversationMessage = {
                 id: msgId,
                 kind: "proposal",
@@ -254,10 +277,10 @@ export function AgentConsole({
               ]);
               finalThread = [...nextThread, proposalMsg];
               setThread(finalThread);
+              // Actions proposal shows immediately — clear streaming bubble now
+              setLiveText("");
+              setLiveSteps([]);
             }
-
-            setLiveText("");
-            setLiveSteps([]);
           },
           onError: (m: string) => {
             const errMsg: ConversationMessage = {
@@ -268,6 +291,9 @@ export function AgentConsole({
             };
             finalThread = [...nextThread, errMsg];
             setThread(finalThread);
+            pendingFinalizeRef.current = null;
+            setLiveText("");
+            setLiveSteps([]);
           },
         },
         activeSheetId,
@@ -275,10 +301,13 @@ export function AgentConsole({
       );
     } finally {
       setStreaming(false);
-      setLiveSteps([]);
-      setLiveText("");
       abortRef.current = null;
-      saveConversation(finalThread);
+      // If pendingFinalizeRef is set, the animation useEffect handles cleanup
+      if (!pendingFinalizeRef.current) {
+        setLiveText("");
+        setLiveSteps([]);
+        saveConversation(finalThread);
+      }
     }
   }
 
