@@ -29,8 +29,9 @@ export function useSmoothStream(
         const tgt = targetRef.current;
         if (cur.length >= tgt.length) return cur;
         const behind = tgt.length - cur.length;
-        // Cap at 5 chars/tick so even all-at-once text still animates visibly
-        const step = Math.min(Math.max(minChars, Math.round(behind / 6)), 5);
+        // When streaming: slow enough to feel live (≤8 chars/tick)
+        // When behind a lot (post-stream catch-up): faster to avoid long tail
+        const step = Math.min(Math.max(minChars, Math.round(behind / 4)), 8);
         return tgt.slice(0, cur.length + step);
       });
     }, speed);

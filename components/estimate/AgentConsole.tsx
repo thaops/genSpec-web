@@ -933,11 +933,14 @@ function ChatPanel({
           return null;
         })}
 
-        {streaming && (
+        {/* Keep bubble visible while streaming OR while typewriter animation is still catching up.
+            Without this, streaming=false hides the bubble before pendingFinalizeRef fires,
+            causing the "all text at once" flash the user sees. */}
+        {(streaming || !!liveText) && (
           <div className="flex animate-slide-up justify-start">
             <div className="max-w-[88%] rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-2.5 text-sm text-zinc-200">
-              {/* Step chips — only while waiting for first token */}
-              {!typedTail && liveSteps.length > 0 && (
+              {/* Step chips — only while actively streaming, before first token */}
+              {streaming && !typedTail && liveSteps.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1">
                   {liveSteps.slice(-2).map((s, i) => (
                     <span
@@ -950,12 +953,12 @@ function ChatPanel({
                   ))}
                 </div>
               )}
-              {/* Streaming text — same style as final ChatBubble, grows in-place */}
+              {/* Streaming text — grows in-place via typewriter, persists until animation done */}
               {typedTail ? (
                 <p className={cn("whitespace-pre-wrap leading-relaxed", caretActive && "type-caret")}>
                   {typedTail}
                 </p>
-              ) : (
+              ) : streaming ? (
                 <span className="flex gap-0.5 py-0.5">
                   {(["0ms", "160ms", "320ms"] as const).map((d) => (
                     <span
@@ -965,7 +968,7 @@ function ChatPanel({
                     />
                   ))}
                 </span>
-              )}
+              ) : null}
             </div>
           </div>
         )}
