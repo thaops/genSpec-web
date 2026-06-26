@@ -778,6 +778,73 @@ export interface BackgroundJob {
   createdAt: string;
 }
 
+// ---------- Proposal Engine ----------
+
+export type ProposalItemType =
+  | 'upsert_takeoff' | 'delete_takeoff'
+  | 'update_cells'
+  | 'upsert_material' | 'update_price'
+  | 'set_project_info';
+
+export interface ProposalItem {
+  id: string;
+  type: ProposalItemType;
+  label: string;
+  detail?: string;
+  before?: Record<string, unknown>;
+  after: Record<string, unknown>;
+  sourceDrawingId?: string;
+  sourceObjectId?: string;  // stableId
+  sourceSheetId?: string;
+  sourceCellRef?: string;
+  confidence: number;
+  requiresConfirmation: boolean;
+  // Items that must be applied first (structural dependency)
+  dependencies?: string[];
+  applyOrder?: number;       // set by topological sort in ProposalEngine
+}
+
+export interface ProposalSetFE {
+  id: string;
+  agentRunId: string;
+  estimateId: string;
+  action: AgentActionType;
+  summary: string;
+  items: ProposalItem[];
+  costBefore?: number;
+  costAfter?: number;
+  costDelta?: number;
+  status: 'pending' | 'partially_applied' | 'applied' | 'discarded';
+  appliedItemIds: string[];
+  createdAt: string;
+}
+
+// ---------- Revision Engine ----------
+
+export type RevisionStatus =
+  | 'added' | 'removed' | 'changed'
+  | 'moved' | 'renamed' | 'split' | 'merged'
+  | 'unchanged';
+
+export interface RevisionMapping {
+  stableId: string;
+  status: RevisionStatus;
+  oldProperties?: Record<string, unknown>;
+  newProperties?: Record<string, unknown>;
+  changedFields?: string[];
+  moveDistance?: number;
+  relatedStableIds?: string[];
+}
+
+export interface RevisionDiffResult {
+  drawingId: string;
+  mappings: RevisionMapping[];
+  addedCount: number;
+  removedCount: number;
+  changedCount: number;
+  significantChanges: string[];  // AI-summarized change descriptions
+}
+
 // ---------- Agent Entities (audit / replay / multi-agent) ----------
 
 // Một lần chạy Agent (có thể retry)
