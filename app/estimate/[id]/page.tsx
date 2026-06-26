@@ -22,6 +22,7 @@ import { takePendingSheets } from "@/lib/pendingSheets";
 import { ExplorerPanel } from "@/components/estimate/explorer/ExplorerPanel";
 import type { WorkspaceView } from "@/components/estimate/explorer/ExplorerPanel";
 import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
+import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
 import { SplitView } from "@/components/drawing/SplitView";
 
 export default function EstimateEditorPage() {
@@ -50,6 +51,7 @@ export default function EstimateEditorPage() {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [activeDrawingId, setActiveDrawingId] = useState<string | undefined>(undefined);
   const [selectedDrawingObject, setSelectedDrawingObject] = useState<DrawingObject | undefined>(undefined);
+  const [drawingViewport, setDrawingViewport] = useState<DrawingViewportInfo | undefined>(undefined);
   const [splitMode, setSplitMode] = useState(false);
   const copilotRef = useRef<AgentHandle>(null);
   const autoSentRef = useRef(false);
@@ -229,10 +231,22 @@ export default function EstimateEditorPage() {
     }
   }
 
-  function handleGenerateTakeoff(obj: DrawingObject) {
-    const prompt = `Generate takeoff cho ${obj.type} từ bản vẽ. Properties: ${JSON.stringify(obj.properties)}. BoundingBox: ${JSON.stringify(obj.boundingBox)}`;
+  function handleGenerateTakeoff(obj: DrawingObject, drawingId: string) {
+    // Action-first flow: direct structured command, not freeform chat
+    const prompt = [
+      `[ACTION:generate_takeoff]`,
+      `Object: ${obj.type}`,
+      `DrawingId: ${drawingId}`,
+      `ObjectId: ${obj.id}`,
+      `Layer: ${obj.layer}`,
+      `BoundingBox: W=${Math.round(obj.boundingBox.w)} H=${Math.round(obj.boundingBox.h)}`,
+      `Properties: ${JSON.stringify(obj.properties)}`,
+      `Confidence: ${Math.round(obj.confidence * 100)}%`,
+    ].join("\n");
+
     setViewMode("workbook");
     setCollapsed(false);
+    // Switch to workbook then send
     setTimeout(() => copilotRef.current?.send(prompt, []), 300);
   }
 
@@ -345,6 +359,10 @@ export default function EstimateEditorPage() {
       onGenerateTakeoff={handleGenerateTakeoff}
       drawings={drawings}
       onDrawingsChange={setDrawings}
+      onViewportChange={(info) => {
+        setDrawingViewport(info);
+        setActiveDrawingId(info.drawingId);
+      }}
     />
   );
 
@@ -411,6 +429,7 @@ export default function EstimateEditorPage() {
           onFindings={handleFindings}
           activeDrawingId={activeDrawingId}
           selectedDrawingObject={selectedDrawingObject}
+          drawingViewport={drawingViewport}
         />
       </div>
     </div>

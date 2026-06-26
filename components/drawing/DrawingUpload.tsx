@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { Drawing } from "@/lib/types";
 import { api, ApiError } from "@/lib/api";
 import { Spinner } from "@/components/ui/Button";
+import { addJob, updateJob } from "@/components/ui/JobCenter";
 
 const ACCEPTED = ".pdf,.dxf,.dwg,.jpg,.jpeg,.png";
 const FILE_ICONS: Record<string, string> = {
@@ -31,17 +32,31 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
     setUploading(true);
     setError(null);
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    setProgress(ext === "dwg" ? "Đang convert DWG → DXF..." : "Đang tải lên...");
+    const isDwg = ext === "dwg";
+    const jobType = isDwg ? "dwg_convert" : ext === "pdf" ? "pdf_parse" : "dxf_parse";
+    const jobMsg = isDwg ? "Convert DWG → DXF..." : `Parse ${ext.toUpperCase()}...`;
+    setProgress(jobMsg);
+
+    const job = addJob({
+      id: crypto.randomUUID(),
+      type: jobType,
+      status: "processing",
+      progress: 20,
+      message: jobMsg,
+      estimateId,
+    });
 
     try {
       const drawing = await api.uploadDrawing(estimateId, file);
+      updateJob(job.id, { status: "done", progress: 100, message: `${file.name} sẵn sàng` });
       setProgress("Xử lý xong!");
       setTimeout(() => {
         setProgress(null);
         setUploading(false);
         onUploaded(drawing);
-      }, 800);
+      }, 600);
     } catch (e) {
+      updateJob(job.id, { status: "failed", message: (e as ApiError).message });
       setError((e as ApiError).message);
       setUploading(false);
       setProgress(null);

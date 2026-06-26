@@ -174,7 +174,8 @@ async function copilotStream(
   activeSheetId?: string,
   selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number },
   activeDrawingId?: string,
-  selectedObjectId?: string
+  selectedObjectId?: string,
+  drawingContext?: { page?: number; scale?: number; activeTool?: string; layer?: string; objectType?: string }
 ): Promise<void> {
   const headers: Record<string, string> = { Accept: "text/event-stream" };
   const token = getToken();
@@ -187,6 +188,7 @@ async function copilotStream(
   if (selectedRange) form.append("selectedRange", JSON.stringify(selectedRange));
   if (activeDrawingId) form.append("drawingId", activeDrawingId);
   if (selectedObjectId) form.append("objectId", selectedObjectId);
+  if (drawingContext) form.append("drawingContext", JSON.stringify(drawingContext));
   if (handlers.editPermission !== undefined) {
     form.append("editPermission", String(handlers.editPermission));
   }
@@ -334,9 +336,10 @@ export const api = {
     activeSheetId?: string,
     selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number },
     activeDrawingId?: string,
-    selectedObjectId?: string
+    selectedObjectId?: string,
+    drawingContext?: { page?: number; scale?: number; activeTool?: string; layer?: string; objectType?: string }
   ): Promise<void> =>
-    copilotStream(id, message, files, handlers, activeSheetId, selectedRange, activeDrawingId, selectedObjectId),
+    copilotStream(id, message, files, handlers, activeSheetId, selectedRange, activeDrawingId, selectedObjectId, drawingContext),
 
   // ---------- Catalog ----------
   catalog: (q: string) =>

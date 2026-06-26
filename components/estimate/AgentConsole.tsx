@@ -9,7 +9,9 @@ import type {
   DrawingObject,
   Estimate,
   ReviewFinding,
+  AiContext,
 } from "@/lib/types";
+import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
@@ -54,6 +56,7 @@ interface Props {
   onFindings?: (findings: ReviewFinding[]) => void;
   activeDrawingId?: string;
   selectedDrawingObject?: DrawingObject;
+  drawingViewport?: DrawingViewportInfo;
 }
 
 export function AgentConsole({
@@ -67,6 +70,7 @@ export function AgentConsole({
   onFindings,
   activeDrawingId,
   selectedDrawingObject,
+  drawingViewport,
 }: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<AgentTab>("chat");
@@ -354,8 +358,16 @@ export function AgentConsole({
         },
         activeSheetId,
         selectedRange,
-        activeDrawingId,
-        selectedDrawingObject?.id
+        activeDrawingId ?? drawingViewport?.drawingId,
+        selectedDrawingObject?.id,
+        // Pack extended drawing context into a single field
+        drawingViewport ? {
+          page: drawingViewport.page,
+          scale: drawingViewport.scale,
+          activeTool: drawingViewport.activeTool,
+          layer: drawingViewport.layer,
+          objectType: drawingViewport.selectedObjectType,
+        } : undefined
       );
     } finally {
       setStreaming(false);

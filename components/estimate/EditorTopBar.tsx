@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
+import { NotificationBell } from "@/components/ui/NotificationCenter";
 
 interface Props {
   estimate: Estimate;
@@ -132,6 +133,7 @@ export function EditorTopBar({
         {exporting ? t("editor.exporting") : t("editor.export")}
       </Button>
 
+      <NotificationBell />
       <ThemeToggle />
       <LanguageToggle />
     </div>
