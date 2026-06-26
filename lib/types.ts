@@ -549,3 +549,113 @@ export interface ConversationMessage {
   findings?: ReviewFinding[];
   timestamp: string;
 }
+
+// ---------- Drawing Workspace ----------
+
+export type DrawingFileType = "pdf" | "dwg" | "dxf" | "image";
+
+export interface Drawing {
+  id: string;
+  estimateId: string;
+  name: string;
+  type: DrawingFileType;
+  url: string;
+  thumbnail?: string;
+  version: number;
+  pageCount?: number;
+  createdAt: string;
+}
+
+export type DrawingObjectType =
+  | "beam" | "column" | "wall" | "slab"
+  | "door" | "window" | "stair" | "roof" | "unknown";
+
+export interface DrawingObject {
+  id: string;
+  drawingId: string;
+  type: DrawingObjectType;
+  geometry: number[][];
+  confidence: number;
+  layer: string;
+  boundingBox: { x: number; y: number; w: number; h: number; page?: number };
+  properties: Record<string, string | number>;
+  boqRef?: string; // matched BOQ row id
+}
+
+export interface RevisionDiff {
+  added: DrawingObject[];
+  removed: DrawingObject[];
+  changed: DrawingObject[];
+}
+
+export interface DrawingRevision {
+  id: string;
+  drawingId: string;
+  version: number;
+  diff: RevisionDiff;
+  createdAt: string;
+}
+
+// ---------- Assets ----------
+
+export interface Asset {
+  id: string;
+  estimateId: string;
+  name: string;
+  type: string;
+  url: string;
+  size: number;
+  createdAt: string;
+}
+
+// ---------- Workspace Preferences ----------
+
+export interface WorkspacePreference {
+  province: string;
+  currency: string;
+  priceSource: string;
+  regulation: string;
+  unit: string;
+  taxRate: number;
+  aiModel?: string;
+}
+
+// ---------- Notifications ----------
+
+export type NotificationType =
+  | "price_updated" | "review_done" | "proposal_ready"
+  | "drawing_parsed" | "export_done" | "job_failed";
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  message: string;
+  estimateId?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+// ---------- Background Jobs ----------
+
+export type JobStatus = "queued" | "processing" | "done" | "failed";
+
+export interface BackgroundJob {
+  id: string;
+  type: string;
+  status: JobStatus;
+  progress: number;
+  message?: string;
+  estimateId?: string;
+  createdAt: string;
+}
+
+// ---------- AI Context ----------
+
+export interface AiContext {
+  workspaceId: string;
+  sheetId?: string;
+  selection?: { startRow: number; startCol: number; endRow: number; endCol: number };
+  drawingId?: string;
+  objectId?: string;
+  revisionId?: string;
+}

@@ -6,6 +6,7 @@ import type { Ref } from "react";
 import type {
   ConversationMessage,
   CopilotProposal,
+  DrawingObject,
   Estimate,
   ReviewFinding,
 } from "@/lib/types";
@@ -51,6 +52,8 @@ interface Props {
     endCol: number;
   };
   onFindings?: (findings: ReviewFinding[]) => void;
+  activeDrawingId?: string;
+  selectedDrawingObject?: DrawingObject;
 }
 
 export function AgentConsole({
@@ -62,6 +65,8 @@ export function AgentConsole({
   activeSheetId,
   selectedRange,
   onFindings,
+  activeDrawingId,
+  selectedDrawingObject,
 }: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<AgentTab>("chat");
@@ -348,7 +353,9 @@ export function AgentConsole({
           },
         },
         activeSheetId,
-        selectedRange
+        selectedRange,
+        activeDrawingId,
+        selectedDrawingObject?.id
       );
     } finally {
       setStreaming(false);
@@ -597,6 +604,8 @@ export function AgentConsole({
             estimateName={estimate.name}
             activeSheetId={activeSheetId}
             selectedRange={selectedRange}
+            activeDrawingId={activeDrawingId}
+            selectedDrawingObjectType={selectedDrawingObject?.type}
             onSend={send}
             onApplyProposal={applyProposal}
             onDiscardProposal={discardProposal}
@@ -807,6 +816,8 @@ interface ChatPanelProps {
   estimateName: string;
   activeSheetId?: string;
   selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number };
+  activeDrawingId?: string;
+  selectedDrawingObjectType?: string;
   onSend: (text?: string, files?: File[]) => void;
   onApplyProposal: (item: ProposalItem) => void;
   onDiscardProposal: (item: ProposalItem) => void;
@@ -844,6 +855,8 @@ function ChatPanel({
   estimateName,
   activeSheetId: _activeSheetId,
   selectedRange,
+  activeDrawingId,
+  selectedDrawingObjectType,
   onSend,
   onApplyProposal,
   onDiscardProposal,
@@ -993,13 +1006,24 @@ function ChatPanel({
       )}
 
       <div className="border-t border-zinc-800 p-3">
-        {selectionLabel && (
-          <div className="mb-2 flex items-center gap-1.5">
-            <span className="flex items-center gap-1 rounded-md border border-accent-500/30 bg-accent-500/10 px-2 py-0.5 text-[11px] text-accent-300">
-              <span>📍</span>
-              <span className="font-mono font-semibold">{selectionLabel}</span>
-              <span className="text-accent-400/70">đang chọn</span>
-            </span>
+        {(selectionLabel || activeDrawingId) && (
+          <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+            {selectionLabel && (
+              <span className="flex items-center gap-1 rounded-md border border-accent-500/30 bg-accent-500/10 px-2 py-0.5 text-[11px] text-accent-300">
+                <span>📍</span>
+                <span className="font-mono font-semibold">{selectionLabel}</span>
+                <span className="text-accent-400/70">đang chọn</span>
+              </span>
+            )}
+            {activeDrawingId && (
+              <span className="flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300">
+                <span>📐</span>
+                <span className="text-blue-400/70">Bản vẽ đang mở</span>
+                {selectedDrawingObjectType && (
+                  <span className="font-semibold ml-1">{selectedDrawingObjectType}</span>
+                )}
+              </span>
+            )}
           </div>
         )}
         <CopilotComposer

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Action, Estimate, ReviewFinding, Sheet } from "@/lib/types";
+import type { Action, Drawing, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
 import { api, ApiError, triggerDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -19,6 +19,10 @@ import WorkbookEditor from "@/components/estimate/WorkbookEditor";
 import { InsightsDashboard } from "@/components/estimate/InsightsDashboard";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
 import { takePendingSheets } from "@/lib/pendingSheets";
+import { ExplorerPanel } from "@/components/estimate/explorer/ExplorerPanel";
+import type { WorkspaceView } from "@/components/estimate/explorer/ExplorerPanel";
+import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
+import { SplitView } from "@/components/drawing/SplitView";
 
 export default function EstimateEditorPage() {
   const { t } = useT();
@@ -42,7 +46,11 @@ export default function EstimateEditorPage() {
     endCol: number;
   } | undefined>(undefined);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
-  const [viewMode, setViewMode] = useState<"workbook" | "insights">("workbook");
+  const [viewMode, setViewMode] = useState<WorkspaceView>("workbook");
+  const [drawings, setDrawings] = useState<Drawing[]>([]);
+  const [activeDrawingId, setActiveDrawingId] = useState<string | undefined>(undefined);
+  const [selectedDrawingObject, setSelectedDrawingObject] = useState<DrawingObject | undefined>(undefined);
+  const [splitMode, setSplitMode] = useState(false);
   const copilotRef = useRef<AgentHandle>(null);
   const autoSentRef = useRef(false);
 
@@ -56,9 +64,11 @@ export default function EstimateEditorPage() {
 
   useEffect(() => {
     let alive = true;
-    api
-      .getEstimate(id)
-      .then((fetched) => {
+    // Load estimate + drawings in parallel
+    Promise.all([
+      api.getEstimate(id),
+      api.listDrawings(id).catch(() => [] as Drawing[]),
+    ]).then(([fetched, fetchedDrawings]) => {
         if (!alive) return;
         let e = fetched;
 
@@ -72,6 +82,10 @@ export default function EstimateEditorPage() {
         }
 
         setEstimate(e);
+        setDrawings(fetchedDrawings);
+        if (fetchedDrawings.length > 0) {
+          setActiveDrawingId(fetchedDrawings[0].id);
+        }
         if (e.sheets && e.sheets.length > 0) {
           setActiveSheetId(e.sheets[0].id);
         } else {
@@ -84,8 +98,7 @@ export default function EstimateEditorPage() {
         ) {
           setCollapsed(false);
         }
-      })
-      .catch((e: ApiError) => alive && setError(e.message));
+      }).catch((e: ApiError) => alive && setError(e.message));
     return () => {
       alive = false;
     };
@@ -208,6 +221,32 @@ export default function EstimateEditorPage() {
     setFindings(newFindings);
   }
 
+  function handleDrawingObjectSelect(obj: DrawingObject) {
+    setSelectedDrawingObject(obj);
+    // If obj has a BOQ ref, highlight that row
+    if (obj.boqRef && estimate?.sheets) {
+      setViewMode("workbook");
+    }
+  }
+
+  function handleGenerateTakeoff(obj: DrawingObject) {
+    const prompt = `Generate takeoff cho ${obj.type} từ bản vẽ. Properties: ${JSON.stringify(obj.properties)}. BoundingBox: ${JSON.stringify(obj.boundingBox)}`;
+    setViewMode("workbook");
+    setCollapsed(false);
+    setTimeout(() => copilotRef.current?.send(prompt, []), 300);
+  }
+
+  async function handleDeleteDrawing(drawingId: string) {
+    try {
+      await api.deleteDrawing(id, drawingId);
+      setDrawings((prev) => prev.filter((d) => d.id !== drawingId));
+      if (activeDrawingId === drawingId) {
+        const remaining = drawings.filter((d) => d.id !== drawingId);
+        setActiveDrawingId(remaining[0]?.id);
+      }
+    } catch { /* ignore */ }
+  }
+
   if (error) {
     return (
       <div className="mx-auto max-w-md py-20 text-center">
@@ -230,6 +269,85 @@ export default function EstimateEditorPage() {
 
   const sheetsList = estimate.sheets ?? [];
 
+  const workbookContent = (
+    <div className="min-w-0 flex-1 overflow-hidden relative bg-zinc-950 flex flex-col h-full">
+      {viewMode === "insights" ? (
+        <InsightsDashboard estimate={estimate} />
+      ) : viewMode === "workbook" && activeSheetId ? (
+        <>
+          {(() => {
+            const currentSheet = sheetsList.find((s) => s.id === activeSheetId);
+            const sheetType = currentSheet?.metadata?.sheetType || "unknown";
+            const confidence = currentSheet?.metadata?.confidence ?? 0;
+            const showWarning = sheetType !== "unknown" && confidence > 0 && confidence < 0.9;
+            if (!showWarning) return null;
+            return (
+              <div className="bg-zinc-900 border-b border-amber-500/20 px-4 py-2 flex items-center justify-between text-xs text-amber-300 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>
+                    Hệ thống nhận diện đây là <strong>{sheetType === "material" ? "Bảng Giá vật tư" : "Bảng BOQ"}</strong> (Độ tin cậy: {Math.round(confidence * 100)}%).
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleConfirmSheetType(activeSheetId, sheetType)}
+                    className="px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-200 hover:bg-amber-500/20"
+                  >
+                    Xác nhận
+                  </button>
+                  <select
+                    onChange={(e) => handleConfirmSheetType(activeSheetId, e.target.value)}
+                    className="bg-zinc-950 border border-zinc-700 text-zinc-300 rounded px-1.5 py-0.5"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Thay đổi</option>
+                    <option value="boq">Bảng BOQ</option>
+                    <option value="material">Bảng Giá vật tư</option>
+                    <option value="unknown">Không xác định</option>
+                  </select>
+                </div>
+              </div>
+            );
+          })()}
+          <div className="flex-1 min-h-0 relative">
+            <WorkbookEditor
+              workbookData={{
+                id: estimate.id,
+                userId: estimate.userId,
+                name: estimate.name,
+                sheets: sheetsList,
+              }}
+              activeSheetId={activeSheetId}
+              onActiveSheetChange={setActiveSheetId}
+              onSelectionChange={handleSelectionChange}
+              onDataChange={handleDataChange}
+              findings={findings}
+            />
+          </div>
+        </>
+      ) : viewMode === "workbook" ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 space-y-3">
+          <span className="text-4xl">📊</span>
+          <p className="text-sm">Create a new sheet or select an existing one to begin</p>
+          <Button onClick={handleAddSheet}>Create First Sheet</Button>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const drawingContent = (
+    <DrawingWorkspace
+      estimateId={estimate.id}
+      activeDrawingId={activeDrawingId}
+      onDrawingSelect={setActiveDrawingId}
+      onObjectSelect={handleDrawingObjectSelect}
+      onGenerateTakeoff={handleGenerateTakeoff}
+      drawings={drawings}
+      onDrawingsChange={setDrawings}
+    />
+  );
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
       <EditorTopBar
@@ -237,179 +355,47 @@ export default function EstimateEditorPage() {
         onRename={onRename}
         onExport={onExport}
         exporting={exporting}
+        splitMode={splitMode}
+        onSplitModeChange={setSplitMode}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Explorer Sidebar */}
-        <div className="w-60 shrink-0 border-r border-zinc-800 bg-zinc-900/30 flex flex-col min-h-0">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800">
-            <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-              Explorer
-            </span>
-            <button
-              onClick={handleAddSheet}
-              className="text-zinc-500 hover:text-zinc-200 text-xs font-bold"
-            >
-              + New Sheet
-            </button>
-          </div>
-          {/* View mode tabs */}
-          <div className="flex border-b border-zinc-800 px-2 pt-1 gap-1">
-            <button
-              onClick={() => setViewMode("workbook")}
-              className={`flex-1 rounded-t px-2 py-1.5 text-[10px] font-medium transition-colors ${
-                viewMode === "workbook"
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              📄 Workbook
-            </button>
-            <button
-              onClick={() => setViewMode("insights")}
-              className={`flex-1 rounded-t px-2 py-1.5 text-[10px] font-medium transition-colors ${
-                viewMode === "insights"
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              📊 Insights
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
-            <div className="text-[11px] font-medium text-zinc-600 px-2 py-1 uppercase tracking-wider">
-              📁 {estimate.name}
-            </div>
-            {sheetsList.map((sheet) => (
-              <div
-                key={sheet.id}
-                className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md text-sm transition-colors ${
-                  activeSheetId === sheet.id
-                    ? "bg-zinc-800 text-zinc-100 font-medium"
-                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200 cursor-pointer"
-                }`}
-                onClick={() => {
-                  if (renamingSheetId !== sheet.id) {
-                    setActiveSheetId(sheet.id);
-                    setViewMode("workbook");
-                  }
-                }}
-              >
-                {renamingSheetId === sheet.id ? (
-                  <input
-                    autoFocus
-                    value={renameText}
-                    onChange={(e) => setRenameText(e.target.value)}
-                    onBlur={() => handleRenameSheet(sheet.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleRenameSheet(sheet.id);
-                      if (e.key === "Escape") setRenamingSheetId(null);
-                    }}
-                    className="w-full bg-zinc-950 border border-accent-500 rounded px-1.5 py-0.5 text-xs text-zinc-100 outline-none"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <>
-                    <span className="truncate flex items-center gap-1.5">
-                      <span>📄</span>
-                      <span className="truncate">{sheet.name}</span>
-                    </span>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRenamingSheetId(sheet.id);
-                          setRenameText(sheet.name);
-                        }}
-                        className="text-[11px] text-zinc-500 hover:text-zinc-300 px-1"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteSheet(sheet.id);
-                        }}
-                        className="text-[11px] text-zinc-500 hover:text-rose-400 px-1"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-            {sheetsList.length === 0 && (
-              <div className="text-xs text-zinc-600 px-2 py-4 text-center">
-                No sheets yet
-              </div>
-            )}
-          </div>
-        </div>
+        <ExplorerPanel
+          estimate={estimate}
+          viewMode={viewMode}
+          onViewModeChange={(mode) => {
+            setViewMode(mode);
+            if (mode === "workbook") setSplitMode(false);
+          }}
+          activeSheetId={activeSheetId}
+          onSheetSelect={(id) => { setActiveSheetId(id); setViewMode("workbook"); }}
+          onAddSheet={handleAddSheet}
+          onDeleteSheet={handleDeleteSheet}
+          onRenameSheet={(sheetId, name) => {
+            const nextSheets = (estimate.sheets ?? []).map((s) =>
+              s.id === sheetId ? { ...s, name } : s
+            );
+            apply([{ type: "set_sheets", sheets: nextSheets }]);
+          }}
+          drawings={drawings}
+          activeDrawingId={activeDrawingId}
+          onDrawingSelect={(dId) => { setActiveDrawingId(dId); setViewMode("drawing"); }}
+          onDeleteDrawing={handleDeleteDrawing}
+        />
 
         {/* Main Area */}
-        <div className="min-w-0 flex-1 overflow-hidden relative bg-zinc-950 flex flex-col">
-          {viewMode === "insights" ? (
-            <InsightsDashboard estimate={estimate} />
-          ) : activeSheetId ? (
-            <>
-              {(() => {
-                const currentSheet = sheetsList.find((s) => s.id === activeSheetId);
-                const sheetType = currentSheet?.metadata?.sheetType || "unknown";
-                const confidence = currentSheet?.metadata?.confidence ?? 0;
-                const showWarning = sheetType !== "unknown" && confidence > 0 && confidence < 0.9;
-                if (!showWarning) return null;
-                return (
-                  <div className="bg-zinc-900 border-b border-amber-500/20 px-4 py-2 flex items-center justify-between text-xs text-amber-300">
-                    <div className="flex items-center gap-2">
-                      <span>⚠️</span>
-                      <span>
-                        Hệ thống nhận diện đây là <strong>{sheetType === "material" ? "Bảng Giá vật tư" : "Bảng BOQ"}</strong> (Độ tin cậy: {Math.round(confidence * 100)}%).
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleConfirmSheetType(activeSheetId, sheetType)}
-                        className="px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-200 hover:bg-amber-500/20"
-                      >
-                        Xác nhận
-                      </button>
-                      <select
-                        onChange={(e) => handleConfirmSheetType(activeSheetId, e.target.value)}
-                        className="bg-zinc-950 border border-zinc-700 text-zinc-300 rounded px-1.5 py-0.5"
-                        defaultValue=""
-                      >
-                        <option value="" disabled>Thay đổi</option>
-                        <option value="boq">Bảng BOQ</option>
-                        <option value="material">Bảng Giá vật tư</option>
-                        <option value="unknown">Không xác định</option>
-                      </select>
-                    </div>
-                  </div>
-                );
-              })()}
-              <div className="flex-1 min-h-0 relative">
-                <WorkbookEditor
-                  workbookData={{
-                    id: estimate.id,
-                    userId: estimate.userId,
-                    name: estimate.name,
-                    sheets: sheetsList,
-                  }}
-                  activeSheetId={activeSheetId}
-                  onActiveSheetChange={setActiveSheetId}
-                  onSelectionChange={handleSelectionChange}
-                  onDataChange={handleDataChange}
-                  findings={findings}
-                />
-              </div>
-            </>
+        <div className="min-w-0 flex-1 overflow-hidden bg-zinc-950 flex flex-col">
+          {viewMode === "drawing" && splitMode ? (
+            <SplitView
+              left={workbookContent}
+              right={drawingContent}
+              storageKey="genspec-split-drawing"
+            />
+          ) : viewMode === "drawing" ? (
+            drawingContent
           ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 space-y-3">
-              <span className="text-4xl">📊</span>
-              <p className="text-sm">Create a new sheet or select an existing one to begin</p>
-              <Button onClick={handleAddSheet}>Create First Sheet</Button>
-            </div>
+            workbookContent
           )}
         </div>
 
@@ -423,6 +409,8 @@ export default function EstimateEditorPage() {
           activeSheetId={activeSheetId}
           selectedRange={selectedRange}
           onFindings={handleFindings}
+          activeDrawingId={activeDrawingId}
+          selectedDrawingObject={selectedDrawingObject}
         />
       </div>
     </div>

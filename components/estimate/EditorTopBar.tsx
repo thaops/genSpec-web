@@ -15,6 +15,8 @@ interface Props {
   onRename: (name: string) => void;
   onExport: () => void;
   exporting: boolean;
+  splitMode?: boolean;
+  onSplitModeChange?: (v: boolean) => void;
 }
 
 export function EditorTopBar({
@@ -22,6 +24,8 @@ export function EditorTopBar({
   onRename,
   onExport,
   exporting,
+  splitMode,
+  onSplitModeChange,
 }: Props) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -100,6 +104,23 @@ export function EditorTopBar({
           {formatVnd(estimate.costSummary?.total ?? estimate.costs?.total ?? 0)}
         </span>
       </div>
+
+      {/* Split view toggle */}
+      {onSplitModeChange && (
+        <button
+          onClick={() => onSplitModeChange(!splitMode)}
+          title="Toggle split view (Spreadsheet | Drawing)"
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
+            splitMode
+              ? "bg-blue-600 text-white"
+              : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
+          )}
+        >
+          <span>⊞</span>
+          <span className="hidden md:inline">Split</span>
+        </button>
+      )}
 
       <Button
         size="sm"

@@ -13,6 +13,12 @@ import type {
   Action,
   ApplyActionsResponse,
   ApiErrorBody,
+  Drawing,
+  DrawingObject,
+  RevisionDiff,
+  WorkspacePreference,
+  AppNotification,
+  BackgroundJob,
 } from "./types";
 
 export const API_URL =
@@ -166,7 +172,9 @@ async function copilotStream(
   files: File[],
   handlers: CopilotStreamHandlers,
   activeSheetId?: string,
-  selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number }
+  selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number },
+  activeDrawingId?: string,
+  selectedObjectId?: string
 ): Promise<void> {
   const headers: Record<string, string> = { Accept: "text/event-stream" };
   const token = getToken();
@@ -177,6 +185,8 @@ async function copilotStream(
   for (const f of files) form.append("files", f);
   if (activeSheetId) form.append("activeSheetId", activeSheetId);
   if (selectedRange) form.append("selectedRange", JSON.stringify(selectedRange));
+  if (activeDrawingId) form.append("drawingId", activeDrawingId);
+  if (selectedObjectId) form.append("objectId", selectedObjectId);
   if (handlers.editPermission !== undefined) {
     form.append("editPermission", String(handlers.editPermission));
   }
@@ -322,9 +332,11 @@ export const api = {
     files: File[],
     handlers: CopilotStreamHandlers,
     activeSheetId?: string,
-    selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number }
+    selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number },
+    activeDrawingId?: string,
+    selectedObjectId?: string
   ): Promise<void> =>
-    copilotStream(id, message, files, handlers, activeSheetId, selectedRange),
+    copilotStream(id, message, files, handlers, activeSheetId, selectedRange, activeDrawingId, selectedObjectId),
 
   // ---------- Catalog ----------
   catalog: (q: string) =>
@@ -373,6 +385,79 @@ export const api = {
 
   // ---------- Export ----------
   exportF1: (id: string) => downloadBlob(`/estimates/${id}/export-f1`),
+
+  // ---------- Drawings ----------
+  listDrawings: (estimateId: string) =>
+    request<Drawing[]>(`/estimates/${estimateId}/drawings`),
+
+  getDrawing: (estimateId: string, drawingId: string) =>
+    request<Drawing & { objects: DrawingObject[] }>(
+      `/estimates/${estimateId}/drawings/${drawingId}`
+    ),
+
+  uploadDrawing: async (estimateId: string, file: File): Promise<Drawing> => {
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_URL}/estimates/${estimateId}/drawings`, {
+      method: "POST",
+      headers,
+      body: form,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      let msg = `Upload failed (${res.status})`;
+      try {
+        const b = (await res.json()) as ApiErrorBody;
+        if (b?.message) msg = Array.isArray(b.message) ? b.message.join(", ") : b.message;
+      } catch { /* ignore */ }
+      throw new ApiError(msg, res.status);
+    }
+    return res.json() as Promise<Drawing>;
+  },
+
+  detectDrawingObjects: (estimateId: string, drawingId: string) =>
+    request<{ objects: DrawingObject[] }>(
+      `/estimates/${estimateId}/drawings/${drawingId}/detect`,
+      { method: "POST" }
+    ),
+
+  compareDrawings: (
+    estimateId: string,
+    drawingIdA: string,
+    drawingIdB: string
+  ) =>
+    request<RevisionDiff>(
+      `/estimates/${estimateId}/drawings/compare`,
+      { method: "POST", body: { drawingIdA, drawingIdB } }
+    ),
+
+  deleteDrawing: (estimateId: string, drawingId: string) =>
+    request<{ ok: true }>(
+      `/estimates/${estimateId}/drawings/${drawingId}`,
+      { method: "DELETE" }
+    ),
+
+  // ---------- Workspace Preferences ----------
+  getPreferences: (estimateId: string) =>
+    request<WorkspacePreference>(`/estimates/${estimateId}/preferences`),
+
+  savePreferences: (estimateId: string, prefs: Partial<WorkspacePreference>) =>
+    request<WorkspacePreference>(`/estimates/${estimateId}/preferences`, {
+      method: "PUT",
+      body: prefs,
+    }),
+
+  // ---------- Notifications ----------
+  getNotifications: () => request<AppNotification[]>("/notifications"),
+
+  markNotificationRead: (id: string) =>
+    request<{ ok: true }>(`/notifications/${id}/read`, { method: "PATCH" }),
+
+  // ---------- Background Jobs ----------
+  getJob: (jobId: string) => request<BackgroundJob>(`/jobs/${jobId}`),
 };
 
 // Trigger a browser download for a fetched Blob.
