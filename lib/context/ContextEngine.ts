@@ -10,6 +10,7 @@
  */
 
 import type { AiContext, DrawingObject } from "@/lib/types";
+import { eventBus } from "@/lib/events/EventBus";
 
 export interface DrawingViewportInfo {
   drawingId: string;
@@ -125,6 +126,8 @@ class ContextEngineClass {
 
   private notify() {
     this.listeners.forEach((l) => l(this.ctx));
+    // Also broadcast on the Event Bus so any module can react
+    eventBus.emit("context:updated", { context: this.ctx });
   }
 }
 

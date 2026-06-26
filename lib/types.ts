@@ -601,6 +601,9 @@ export type DrawingObjectType =
 
 export interface DrawingObject {
   id: string;
+  // stableId persists across revisions — same physical object = same stableId.
+  // Used by Revision Compare to track identity without depending on id.
+  stableId: string;
   drawingId: string;
   pageId?: string;
   layerId?: string;
@@ -613,6 +616,37 @@ export interface DrawingObject {
   boqRef?: string;       // matched BOQ row id
   specRef?: string;      // linked specification clause
   markupIds?: string[];  // annotations on this object
+  floor?: string;        // "Tầng 1", "Móng", "Mái" — set by Graph Builder
+}
+
+// ---------- Drawing Graph ----------
+
+export type RelationshipType =
+  | "supports"       // column supports beam
+  | "supported_by"   // beam supported_by column
+  | "contains"       // slab contains opening
+  | "adjacent_to"    // wall adjacent_to wall
+  | "belongs_to"     // object belongs_to floor/zone
+  | "connects"       // beam connects column to column
+  | "references";    // dimension references object
+
+export interface DrawingRelationship {
+  id: string;
+  drawingId: string;
+  fromObjectId: string;  // stableId preferred
+  toObjectId: string;    // stableId preferred
+  type: RelationshipType;
+  confidence: number;    // 0-1 (AI-inferred or rule-based)
+  properties?: Record<string, string | number>;
+  createdAt: string;
+}
+
+// Structural graph for one drawing — nodes + edges
+export interface DrawingGraph {
+  drawingId: string;
+  objects: DrawingObject[];
+  relationships: DrawingRelationship[];
+  builtAt: string;       // when graph was last computed
 }
 
 // Markup / redline do user vẽ lên
@@ -843,4 +877,82 @@ export interface AiContext {
   mousePosition?: { x: number; y: number };
   // Timestamp for cache invalidation
   capturedAt?: string;
+}
+
+// ---------- AI Knowledge Graph ----------
+// Unified graph that AI reads — connects all domain entities.
+// Built incrementally as data arrives, never recomputed from scratch.
+
+export type KnowledgeNodeType =
+  | "estimate"
+  | "sheet"
+  | "takeoff_item"
+  | "boq_row"
+  | "material"
+  | "drawing"
+  | "drawing_object"
+  | "specification"
+  | "price_source"
+  | "revision";
+
+export interface KnowledgeNode {
+  id: string;             // entity id from its own domain
+  type: KnowledgeNodeType;
+  label: string;          // human-readable display
+  estimateId: string;
+  properties?: Record<string, string | number>;
+}
+
+export type KnowledgeEdgeType =
+  | "has_sheet"
+  | "has_drawing"
+  | "has_takeoff"
+  | "references_boq"      // drawing_object → boq_row
+  | "priced_by"           // boq_row → material
+  | "specified_by"        // drawing_object → specification
+  | "supported_by"        // drawing graph relationship
+  | "revised_from"        // drawing_object → revision
+  | "sourced_from";       // price → price_source
+
+export interface KnowledgeEdge {
+  fromId: string;
+  toId: string;
+  type: KnowledgeEdgeType;
+  weight?: number;        // relevance score for AI ranking
+}
+
+export interface KnowledgeGraph {
+  estimateId: string;
+  nodes: KnowledgeNode[];
+  edges: KnowledgeEdge[];
+  builtAt: string;
+}
+
+// ---------- Agent Registry ----------
+// Declarative definition of every AI agent in the system.
+// Adding a new agent = adding one entry here + implementing the handler.
+
+export type AgentPermission =
+  | "read_workbook"
+  | "write_workbook"
+  | "read_drawing"
+  | "read_price"
+  | "write_notification"
+  | "write_job";
+
+export interface AgentDefinition {
+  id: string;             // matches AgentActionType
+  name: string;           // "Generate Takeoff"
+  description: string;
+  icon: string;
+  permissions: AgentPermission[];
+  model: string;          // "openrouter/google/gemma-3-27b-it" | "gpt-4o-mini" etc.
+  inputSchema: string;    // JSON schema id for input validation
+  outputSchema: string;   // JSON schema id for output validation
+  streaming: boolean;
+  maxTokens?: number;
+  // FE display
+  visibleInToolbar: boolean;
+  shortcut?: string;
+  category: "analysis" | "generation" | "comparison" | "explanation" | "optimization";
 }
