@@ -161,6 +161,20 @@ export function AgentConsole({
   // Cleanup abort on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
+  // Flush pending save before tab closes or user navigates away
+  useEffect(() => {
+    function flush() {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        // Fire immediately (best-effort, browser may not await fetch on unload)
+        api.saveConversation(estimate.id, thread).catch(() => {});
+      }
+    }
+    window.addEventListener("beforeunload", flush);
+    return () => window.removeEventListener("beforeunload", flush);
+  }, [estimate.id, thread]);
+
   // Finalize after animation catches up with liveText
   useEffect(() => {
     if (streaming) return;
@@ -331,11 +345,11 @@ export function AgentConsole({
     } finally {
       setStreaming(false);
       abortRef.current = null;
-      // If pendingFinalizeRef is set, the animation useEffect handles cleanup
+      // Always persist — animation may not complete before user navigates away
+      saveConversation(finalThread);
       if (!pendingFinalizeRef.current) {
         setLiveText("");
         setLiveSteps([]);
-        saveConversation(finalThread);
       }
     }
   }
