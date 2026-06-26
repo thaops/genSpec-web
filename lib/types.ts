@@ -550,7 +550,7 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
-// ---------- Drawing Workspace ----------
+// ---------- Drawing Domain ----------
 
 export type DrawingFileType = "pdf" | "dwg" | "dxf" | "image";
 
@@ -566,20 +566,100 @@ export interface Drawing {
   createdAt: string;
 }
 
+// Một trang trong bản vẽ PDF/DWG
+export interface DrawingPage {
+  id: string;
+  drawingId: string;
+  pageNumber: number;
+  label?: string;        // "Tầng 1", "Mặt bằng kết cấu"
+  scale?: number;        // tỷ lệ trang
+  width?: number;        // điểm PDF/DXF unit
+  height?: number;
+  thumbnail?: string;
+}
+
+// Layer trong DXF/DWG (hoặc nhóm đối tượng trong PDF)
+export interface DrawingLayer {
+  id: string;
+  drawingId: string;
+  name: string;          // "BEAM", "COLUMN", "0"
+  color?: string;        // hex
+  visible: boolean;
+  locked: boolean;
+  objectCount: number;
+}
+
+// Đối tượng kiến trúc/kết cấu được detect
 export type DrawingObjectType =
-  | "beam" | "column" | "wall" | "slab"
-  | "door" | "window" | "stair" | "roof" | "unknown";
+  // Kết cấu
+  | "beam" | "column" | "wall" | "slab" | "stair" | "roof" | "footing" | "pile"
+  // Kiến trúc
+  | "door" | "window" | "opening" | "ramp" | "elevator"
+  // CAD entities
+  | "dimension" | "leader" | "block" | "polyline" | "hatch" | "text" | "symbol" | "viewport"
+  | "unknown";
 
 export interface DrawingObject {
   id: string;
   drawingId: string;
+  pageId?: string;
+  layerId?: string;
   type: DrawingObjectType;
   geometry: number[][];
   confidence: number;
   layer: string;
   boundingBox: { x: number; y: number; w: number; h: number; page?: number };
   properties: Record<string, string | number>;
-  boqRef?: string; // matched BOQ row id
+  boqRef?: string;       // matched BOQ row id
+  specRef?: string;      // linked specification clause
+  markupIds?: string[];  // annotations on this object
+}
+
+// Markup / redline do user vẽ lên
+export type MarkupType = "arrow" | "rect" | "circle" | "freehand" | "callout" | "cloud";
+export type MarkupColor = "red" | "green" | "blue" | "yellow" | "orange";
+
+export interface DrawingMarkup {
+  id: string;
+  drawingId: string;
+  pageNumber: number;
+  type: MarkupType;
+  color: MarkupColor;
+  points: number[][];   // geometry
+  text?: string;
+  createdBy: string;
+  createdAt: string;
+  resolved: boolean;
+}
+
+// Comment / annotation gắn với markup hoặc object
+export interface DrawingAnnotation {
+  id: string;
+  drawingId: string;
+  markupId?: string;
+  objectId?: string;
+  pageNumber: number;
+  text: string;
+  author: string;
+  createdAt: string;
+  replies?: DrawingAnnotationReply[];
+}
+
+export interface DrawingAnnotationReply {
+  id: string;
+  text: string;
+  author: string;
+  createdAt: string;
+}
+
+// Full-text search index entry (pre-built by parser)
+export interface DrawingIndexEntry {
+  drawingId: string;
+  pageNumber: number;
+  kind: "layer" | "text" | "dimension" | "block" | "object";
+  value: string;         // text nội dung có thể tìm
+  objectId?: string;
+  boundingBox?: { x: number; y: number; w: number; h: number };
 }
 
 export interface RevisionDiff {
@@ -592,7 +672,10 @@ export interface DrawingRevision {
   id: string;
   drawingId: string;
   version: number;
+  label?: string;        // "Rev A", "IFC 2024-01-15"
   diff: RevisionDiff;
+  summary?: string;      // AI-generated summary of changes
+  uploadedBy: string;
   createdAt: string;
 }
 
@@ -637,25 +720,127 @@ export interface AppNotification {
 
 // ---------- Background Jobs ----------
 
-export type JobStatus = "queued" | "processing" | "done" | "failed";
+export type JobStatus = "queued" | "processing" | "done" | "failed" | "cancelled";
+
+export interface JobLogEntry {
+  at: string;
+  level: "info" | "warn" | "error";
+  message: string;
+}
 
 export interface BackgroundJob {
   id: string;
   type: string;
   status: JobStatus;
-  progress: number;
+  progress: number;      // 0-100
   message?: string;
   estimateId?: string;
+  drawingId?: string;
+  logs?: JobLogEntry[];
+  durationMs?: number;   // set when done/failed
+  retryCount?: number;
+  canRetry?: boolean;
+  canCancel?: boolean;
   createdAt: string;
 }
 
-// ---------- AI Context ----------
+// ---------- Agent Entities (audit / replay / multi-agent) ----------
+
+// Một lần chạy Agent (có thể retry)
+export interface AgentRun {
+  id: string;
+  estimateId: string;
+  action: AgentActionType;
+  status: "pending" | "running" | "done" | "failed";
+  contextSnapshot: AiContext;
+  inputPrompt: string;
+  outputProposal?: string;   // proposal id
+  durationMs?: number;
+  tokensUsed?: number;
+  createdAt: string;
+}
+
+// Nhóm proposals liên quan một AgentRun
+export interface ProposalSet {
+  id: string;
+  agentRunId: string;
+  estimateId: string;
+  proposals: CopilotProposal[];
+  appliedAt?: string;
+  discardedAt?: string;
+}
+
+// Review run (review_workbook / review_drawing)
+export interface ReviewRun {
+  id: string;
+  estimateId: string;
+  type: "workbook" | "drawing";
+  drawingId?: string;
+  findings: ReviewFinding[];
+  resolvedIds: string[];
+  createdAt: string;
+}
+
+// Audit log cho mọi action user + AI
+export interface ActionLog {
+  id: string;
+  estimateId: string;
+  actor: "user" | "ai";
+  action: string;
+  payload?: Record<string, unknown>;
+  resultSummary?: string;
+  revertible: boolean;
+  createdAt: string;
+}
+
+// ---------- Standardized AI Actions ----------
+
+export type AgentActionType =
+  | "review_workbook"
+  | "review_drawing"
+  | "generate_takeoff"
+  | "generate_boq"
+  | "find_missing"
+  | "compare_revision"
+  | "explain_code"
+  | "update_price"
+  | "optimize_cost";
+
+export interface AgentActionPayload {
+  action: AgentActionType;
+  estimateId: string;
+  // generate_takeoff / review_drawing
+  drawingId?: string;
+  objectId?: string;
+  pageNumber?: number;
+  // find_missing / compare_revision
+  revisionIdA?: string;
+  revisionIdB?: string;
+  // explain_code / update_price
+  code?: string;
+  sheetId?: string;
+  cellRef?: string;
+}
+
+// ---------- AI Context Engine ----------
 
 export interface AiContext {
   workspaceId: string;
+  // Spreadsheet context
   sheetId?: string;
   selection?: { startRow: number; startCol: number; endRow: number; endCol: number };
+  // Drawing context
   drawingId?: string;
   objectId?: string;
+  hoveredObjectId?: string;
   revisionId?: string;
+  // Viewport
+  currentPage?: number;
+  currentFloor?: string;  // "Tầng 1", "Mái", "Móng"
+  scale?: number;
+  activeTool?: string;
+  layer?: string;
+  mousePosition?: { x: number; y: number };
+  // Timestamp for cache invalidation
+  capturedAt?: string;
 }

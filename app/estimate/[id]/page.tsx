@@ -19,6 +19,8 @@ import WorkbookEditor from "@/components/estimate/WorkbookEditor";
 import { InsightsDashboard } from "@/components/estimate/InsightsDashboard";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
 import { takePendingSheets } from "@/lib/pendingSheets";
+import { contextEngine } from "@/lib/context/ContextEngine";
+import { buildGenerateTakeoffAction } from "@/lib/actions/AgentActions";
 import { ExplorerPanel } from "@/components/estimate/explorer/ExplorerPanel";
 import type { WorkspaceView } from "@/components/estimate/explorer/ExplorerPanel";
 import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
@@ -105,6 +107,15 @@ export default function EstimateEditorPage() {
       alive = false;
     };
   }, [id]);
+
+  // Init context engine when workspace loads
+  useEffect(() => {
+    if (estimate) contextEngine.init(estimate.id);
+  }, [estimate?.id]);
+
+  // Sync sheet / selection → context engine
+  useEffect(() => { contextEngine.onSheetChange(activeSheetId); }, [activeSheetId]);
+  useEffect(() => { if (selectedRange) contextEngine.onSelectionChange(selectedRange); }, [selectedRange]);
 
   useEffect(() => {
     if (!estimate || autoSentRef.current) return;
@@ -232,21 +243,10 @@ export default function EstimateEditorPage() {
   }
 
   function handleGenerateTakeoff(obj: DrawingObject, drawingId: string) {
-    // Action-first flow: direct structured command, not freeform chat
-    const prompt = [
-      `[ACTION:generate_takeoff]`,
-      `Object: ${obj.type}`,
-      `DrawingId: ${drawingId}`,
-      `ObjectId: ${obj.id}`,
-      `Layer: ${obj.layer}`,
-      `BoundingBox: W=${Math.round(obj.boundingBox.w)} H=${Math.round(obj.boundingBox.h)}`,
-      `Properties: ${JSON.stringify(obj.properties)}`,
-      `Confidence: ${Math.round(obj.confidence * 100)}%`,
-    ].join("\n");
-
+    // Context engine already knows current state; use Action Dispatcher
+    const prompt = buildGenerateTakeoffAction(obj, drawingId, contextEngine.getContext());
     setViewMode("workbook");
     setCollapsed(false);
-    // Switch to workbook then send
     setTimeout(() => copilotRef.current?.send(prompt, []), 300);
   }
 
@@ -362,6 +362,7 @@ export default function EstimateEditorPage() {
       onViewportChange={(info) => {
         setDrawingViewport(info);
         setActiveDrawingId(info.drawingId);
+        contextEngine.onViewportChange(info);
       }}
     />
   );
