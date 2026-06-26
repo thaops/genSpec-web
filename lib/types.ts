@@ -560,9 +560,12 @@ export interface Drawing {
   name: string;
   type: DrawingFileType;
   url: string;
+  convertedUrl?: string;
   thumbnail?: string;
   version: number;
   pageCount?: number;
+  parseStatus?: "pending" | "converting" | "parsing" | "ready" | "failed";
+  parseError?: string;
   createdAt: string;
 }
 

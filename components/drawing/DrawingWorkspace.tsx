@@ -144,7 +144,14 @@ export function DrawingWorkspace({
   }
 
   const isPdf = activeDrawing.type === "pdf";
-  const isDxfOrDwg = activeDrawing.type === "dxf" || activeDrawing.type === "dwg";
+  // DWG uses convertedUrl (DXF after server conversion); raw DWG is binary and unreadable by dxf-viewer
+  const dxfUrl = activeDrawing.type === "dxf"
+    ? activeDrawing.url
+    : activeDrawing.type === "dwg"
+      ? activeDrawing.convertedUrl
+      : undefined;
+  const isDxf = !!dxfUrl;
+  const isDwgConverting = activeDrawing.type === "dwg" && !activeDrawing.convertedUrl;
   const isImage = activeDrawing.type === "image";
 
   return (
@@ -191,11 +198,18 @@ export function DrawingWorkspace({
               onViewportChange={(info) => setViewport(info)}
             />
           )}
-          {isDxfOrDwg && (
+          {isDxf && (
             <DxfViewer
-              url={activeDrawing.url}
+              url={dxfUrl!}
               highlightObjectIds={objects.map((o) => o.id)}
             />
+          )}
+          {isDwgConverting && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
+              <Spinner className="h-6 w-6" />
+              <p className="text-sm">Đang chuyển đổi DWG sang DXF...</p>
+              <p className="text-xs text-zinc-600">File sẽ hiển thị sau khi convert xong</p>
+            </div>
           )}
           {isImage && (
             <div className="flex items-center justify-center h-full bg-zinc-900/50 p-4">
