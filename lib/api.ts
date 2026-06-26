@@ -227,11 +227,22 @@ async function copilotStream(
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       // SSE frames are separated by a blank line.
+      // Collect all frames from this chunk first, then dispatch with a yield
+      // between each so React can render intermediate states (avoids the
+      // "all text at once" effect when multiple token frames arrive in one packet).
+      const frames: string[] = [];
       let sep: number;
       while ((sep = buffer.indexOf("\n\n")) !== -1) {
         const frame = buffer.slice(0, sep);
         buffer = buffer.slice(sep + 2);
-        if (frame.trim()) dispatchFrame(frame, handlers);
+        if (frame.trim()) frames.push(frame);
+      }
+      for (const frame of frames) {
+        dispatchFrame(frame, handlers);
+        // Yield to the macrotask queue so React flushes between tokens.
+        // Without this, batched setState calls produce a single render showing
+        // all text at once instead of the typewriter effect.
+        await new Promise<void>((r) => setTimeout(r, 0));
       }
     }
     // Flush any trailing frame.
