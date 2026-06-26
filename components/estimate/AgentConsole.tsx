@@ -261,8 +261,37 @@ export function AgentConsole({
                 setLiveSteps([]);
                 saveConversation(nextFinalThread);
               };
+            } else if (editPermission) {
+              // Edit mode + actions → auto-apply, no confirmation
+              setLiveText("");
+              setLiveSteps([]);
+              api.applyActions(estimateRef.current.id, p.actions, "ai")
+                .then((res) => {
+                  onEstimateUpdated(res.estimate);
+                  const applied = res.applied ?? p.actions.length;
+                  const doneMsg: ConversationMessage = {
+                    id: msgId,
+                    kind: "assistant",
+                    text: `${p.message}\n\n✓ Đã áp dụng ${applied} thay đổi.`,
+                    timestamp: ts,
+                  };
+                  const nextFinalThread = [...nextThread, doneMsg];
+                  finalThread = nextFinalThread;
+                  setThread(nextFinalThread);
+                  saveConversation(nextFinalThread);
+                })
+                .catch((err: Error) => {
+                  const errMsg: ConversationMessage = {
+                    id: msgId,
+                    kind: "error",
+                    text: `⚠ Áp dụng thất bại: ${err.message}`,
+                    timestamp: ts,
+                  };
+                  finalThread = [...nextThread, errMsg];
+                  setThread(finalThread);
+                });
             } else {
-              // Has actions → proper proposal, show ProposalCard immediately
+              // Edit mode OFF → show ProposalCard for manual confirmation
               const proposalMsg: ConversationMessage = {
                 id: msgId,
                 kind: "proposal",
