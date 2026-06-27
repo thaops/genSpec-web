@@ -81,7 +81,7 @@ export function DrawingToolbar({ activeTool, onToolChange, vertical = true }: Dr
                 : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
             }`}
           >
-            <span className={tool.id === "count" ? "font-bold text-xs font-mono" : ""}>{tool.icon}</span>
+            <tool.Icon className="h-3.5 w-3.5" />
           </button>
           {tool.dividerAfter && (
             <div className="h-5 w-px bg-zinc-800 mx-1" />
