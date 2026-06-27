@@ -90,6 +90,20 @@ export function DrawingWorkspace({
 
   const activeDrawing = drawings.find((d) => d.id === activeDrawingId);
 
+  // Poll drawing status when not ready
+  useEffect(() => {
+    if (!activeDrawing || activeDrawing.parseStatus === "ready" || activeDrawing.parseStatus === "failed") return;
+    const interval = setInterval(async () => {
+      try {
+        const updated = await api.getDrawing(estimateId, activeDrawing.id);
+        if (updated.parseStatus !== activeDrawing.parseStatus) {
+          onDrawingsChange?.(drawings.map((d) => (d.id === updated.id ? { ...d, ...updated } : d)));
+        }
+      } catch {}
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [estimateId, activeDrawing?.id, activeDrawing?.parseStatus]);
+
   // Load objects when drawing changes
   useEffect(() => {
     if (!activeDrawingId) { setObjects([]); return; }
