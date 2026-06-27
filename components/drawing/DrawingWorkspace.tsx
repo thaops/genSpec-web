@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Drawing, DrawingObject } from "@/lib/types";
-import { api } from "@/lib/api";
+import { api, API_URL } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 import { DxfViewer } from "./DxfViewer";
 import { DrawingUpload } from "./DrawingUpload";
@@ -195,13 +195,14 @@ export function DrawingWorkspace({
   const isReady   = !activeDrawing.parseStatus || activeDrawing.parseStatus === "ready";
   const isProcessing = !isReady;
 
+  // Always serve files through API proxy — Cloudinary raw URLs return 401 (CDN ACL)
+  const proxyUrl = `${API_URL}/estimates/${estimateId}/drawings/${activeDrawing.id}/file`;
+
   const isPdf = isReady && activeDrawing.type === "pdf";
   const dxfUrl = isReady
-    ? activeDrawing.type === "dxf"
-      ? activeDrawing.url
-      : activeDrawing.type === "dwg"
-        ? activeDrawing.convertedUrl
-        : undefined
+    ? activeDrawing.type === "dxf" || activeDrawing.type === "dwg"
+      ? proxyUrl
+      : undefined
     : undefined;
   const isDxf  = !!dxfUrl;
   const isImage = isReady && activeDrawing.type === "image";
@@ -243,7 +244,7 @@ export function DrawingWorkspace({
         <div className="flex-1 min-h-0 overflow-hidden">
           {isPdf && (
             <PdfViewer
-              url={activeDrawing.url}
+              url={proxyUrl}
               activeTool={activeTool}
               objectHighlights={objects}
               onObjectSelect={handleObjectSelect}
@@ -262,7 +263,7 @@ export function DrawingWorkspace({
           {isImage && (
             <div className="flex items-center justify-center h-full bg-zinc-900/50 p-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={activeDrawing.url} alt={activeDrawing.name} className="max-h-full max-w-full object-contain" />
+              <img src={proxyUrl} alt={activeDrawing.name} className="max-h-full max-w-full object-contain" />
             </div>
           )}
         </div>
