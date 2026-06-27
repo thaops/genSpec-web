@@ -5,6 +5,7 @@ type AnyViewer = any;
 
 import { useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/ui/Button";
+import { AlertTriangle } from "lucide-react";
 
 interface LayerState {
   name: string;
@@ -101,7 +102,7 @@ export function DxfViewer({ url }: DxfViewerProps) {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-2">
-        <span className="text-2xl">⚠️</span>
+        <AlertTriangle className="h-6 w-6 text-amber-400" />
         <p className="text-sm">Không thể tải file DXF</p>
         <p className="text-xs text-zinc-600">{error}</p>
       </div>

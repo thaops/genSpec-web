@@ -10,6 +10,7 @@ import { ObjectInspector } from "./ObjectInspector";
 import { DrawingToolbar, type DrawingTool } from "./DrawingToolbar";
 import { Spinner } from "@/components/ui/Button";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
+import { AlertTriangle, Ruler, Sparkles } from "lucide-react";
 
 const PARSE_STATUS_LABELS: Record<string, string> = {
   queued:     "Đang xếp hàng xử lý...",
@@ -28,7 +29,7 @@ function DrawingProcessingState({ drawing }: { drawing: Drawing }) {
     <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
       {isFailed ? (
         <>
-          <span className="text-2xl">⚠️</span>
+          <AlertTriangle className="h-6 w-6 text-amber-400" />
           <p className="text-sm text-rose-400">Xử lý thất bại</p>
           {drawing.parseError && (
             <p className="text-xs text-zinc-600 max-w-xs text-center">{drawing.parseError}</p>
@@ -155,7 +156,7 @@ export function DrawingWorkspace({
     return (
       <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
         <div className="text-center space-y-2">
-          <p className="text-4xl">📐</p>
+          <Ruler className="h-10 w-10 text-zinc-600" />
           <p className="text-sm text-zinc-300 font-medium">Chưa có bản vẽ</p>
           <p className="text-xs text-zinc-500">Tải lên bản vẽ PDF, DXF hoặc DWG để bắt đầu</p>
         </div>
@@ -210,7 +211,7 @@ export function DrawingWorkspace({
               disabled={detecting}
               className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-50 text-[11px] transition-colors"
             >
-              {detecting ? <Spinner className="h-3 w-3" /> : "✨"}
+              {detecting ? <Spinner className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
               <span>Detect</span>
             </button>
             <button

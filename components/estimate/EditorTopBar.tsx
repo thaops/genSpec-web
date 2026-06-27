@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
+import { LayoutPanelLeft } from "lucide-react";
 import { NotificationBell } from "@/components/ui/NotificationCenter";
 
 interface Props {
@@ -118,7 +119,7 @@ export function EditorTopBar({
               : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
           )}
         >
-          <span>⊞</span>
+          <LayoutPanelLeft className="h-3.5 w-3.5" />
           <span className="hidden md:inline">Split</span>
         </button>
       )}

@@ -7,6 +7,7 @@ import type { EstimateListItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { setPendingPrompt } from "@/lib/pendingPrompt";
 import { Spinner } from "@/components/ui/Button";
+import { Search, Plus, Download, DollarSign, Hash, ClipboardList, FileText } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -14,13 +15,13 @@ interface Props {
   estimates: EstimateListItem[];
 }
 
-const QUICK_COMMANDS = [
-  { id: "new", label: "Tạo Workspace mới", icon: "➕", action: "new" },
-  { id: "review", label: "Review Workbook mới nhất", icon: "🔍", action: "review" },
-  { id: "import", label: "Import Excel", icon: "📥", action: "import" },
-  { id: "prices", label: "Tìm giá vật liệu mới nhất", icon: "💰", action: "prices" },
-  { id: "codes", label: "Tìm mã hiệu công tác", icon: "🔢", action: "codes" },
-  { id: "official", label: "Tra cứu văn bản chính thức", icon: "📋", action: "official" },
+const QUICK_COMMANDS: { id: string; label: string; Icon: React.ComponentType<{ className?: string }>; action: string }[] = [
+  { id: "new",      label: "Tạo Workspace mới",          Icon: Plus,          action: "new" },
+  { id: "review",   label: "Review Workbook mới nhất",   Icon: Search,        action: "review" },
+  { id: "import",   label: "Import Excel",               Icon: Download,      action: "import" },
+  { id: "prices",   label: "Tìm giá vật liệu mới nhất", Icon: DollarSign,    action: "prices" },
+  { id: "codes",    label: "Tìm mã hiệu công tác",       Icon: Hash,          action: "codes" },
+  { id: "official", label: "Tra cứu văn bản chính thức", Icon: ClipboardList, action: "official" },
 ];
 
 export function CommandPalette({ open, onClose, estimates }: Props) {
@@ -130,7 +131,7 @@ export function CommandPalette({ open, onClose, estimates }: Props) {
       <div className="animate-slide-up w-full max-w-xl rounded-2xl border border-zinc-700 bg-zinc-900 shadow-2xl">
         {/* Input */}
         <div className="flex items-center gap-3 border-b border-zinc-800 px-4 py-3">
-          <span className="text-zinc-500">🔍</span>
+          <Search className="h-4 w-4 text-zinc-500" />
           <input
             ref={inputRef}
             value={query}
@@ -163,7 +164,7 @@ export function CommandPalette({ open, onClose, estimates }: Props) {
                   onClick={() => handleCommand(cmd.action)}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
                 >
-                  <span className="text-base">{cmd.icon}</span>
+                  <cmd.Icon className="h-4 w-4 shrink-0 text-zinc-500" />
                   {cmd.label}
                 </button>
               ))}
@@ -185,7 +186,7 @@ export function CommandPalette({ open, onClose, estimates }: Props) {
                   }}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-800"
                 >
-                  <span>📄</span>
+                  <FileText className="h-4 w-4 text-zinc-500" />
                   <span className="flex-1 truncate text-zinc-200">{est.name}</span>
                   <span className="text-xs text-zinc-600">{est.takeoffCount} công tác</span>
                 </button>
@@ -201,7 +202,7 @@ export function CommandPalette({ open, onClose, estimates }: Props) {
                 disabled={creating}
                 className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-accent-300 hover:bg-accent-500/10 disabled:opacity-50"
               >
-                <span>➕</span>
+                <Plus className="h-4 w-4" />
                 Tạo workspace mới &ldquo;{query.trim()}&rdquo;
               </button>
             </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { MousePointer2, Hand, ZoomIn, Ruler, Hash, Square, Search, Layers, ArrowLeftRight, Sparkles } from "lucide-react";
+
 export type DrawingTool =
   | "pointer"
   | "pan"
@@ -14,23 +16,23 @@ export type DrawingTool =
 
 interface Tool {
   id: DrawingTool;
-  icon: string;
+  Icon: React.ComponentType<{ className?: string }>;
   label: string;
   shortcut?: string;
   dividerAfter?: boolean;
 }
 
 const TOOLS: Tool[] = [
-  { id: "pointer", icon: "↖", label: "Pointer", shortcut: "V" },
-  { id: "pan", icon: "✋", label: "Pan", shortcut: "H" },
-  { id: "zoom", icon: "🔍", label: "Zoom", shortcut: "Z", dividerAfter: true },
-  { id: "measure", icon: "📏", label: "Measure", shortcut: "M" },
-  { id: "count", icon: "#", label: "Count", shortcut: "C" },
-  { id: "area", icon: "⬡", label: "Area", shortcut: "A", dividerAfter: true },
-  { id: "search", icon: "🔎", label: "Search", shortcut: "F" },
-  { id: "layer", icon: "◫", label: "Layers", shortcut: "L" },
-  { id: "compare", icon: "⇌", label: "Compare", dividerAfter: true },
-  { id: "ai", icon: "✨", label: "AI Detect", shortcut: "⌘D" },
+  { id: "pointer", Icon: MousePointer2,   label: "Pointer", shortcut: "V" },
+  { id: "pan",     Icon: Hand,            label: "Pan",     shortcut: "H" },
+  { id: "zoom",    Icon: ZoomIn,          label: "Zoom",    shortcut: "Z", dividerAfter: true },
+  { id: "measure", Icon: Ruler,           label: "Measure", shortcut: "M" },
+  { id: "count",   Icon: Hash,            label: "Count",   shortcut: "C" },
+  { id: "area",    Icon: Square,          label: "Area",    shortcut: "A", dividerAfter: true },
+  { id: "search",  Icon: Search,          label: "Search",  shortcut: "F" },
+  { id: "layer",   Icon: Layers,          label: "Layers",  shortcut: "L" },
+  { id: "compare", Icon: ArrowLeftRight,  label: "Compare", dividerAfter: true },
+  { id: "ai",      Icon: Sparkles,        label: "AI Detect", shortcut: "⌘D" },
 ];
 
 interface DrawingToolbarProps {
@@ -54,7 +56,7 @@ export function DrawingToolbar({ activeTool, onToolChange, vertical = true }: Dr
                   : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
               }`}
             >
-              <span className={tool.id === "count" ? "font-bold text-xs font-mono" : ""}>{tool.icon}</span>
+              <tool.Icon className="h-3.5 w-3.5" />
             </button>
             {tool.dividerAfter && (
               <div className="w-6 h-px bg-zinc-800 my-1" />

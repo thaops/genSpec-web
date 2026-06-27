@@ -20,6 +20,7 @@ import { LiveTimeline, type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
 import { HistoryTimeline } from "./HistoryTimeline";
 import { SparkleIcon, ChevronRightIcon } from "@/components/ui/icons";
+import { Bot, CheckCircle2 as CheckCircle2Icon, ClipboardList, Lock, MapPin, Ruler, XCircle, AlertTriangle, Info } from "lucide-react";
 import { takePendingTask, type PendingTask } from "@/lib/pendingTask";
 import { TaskCard } from "./TaskCard";
 
@@ -644,7 +645,7 @@ function PlanPanel({
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center">
         <div>
-          <div className="mb-3 text-3xl">🤖</div>
+          <Bot className="mb-3 h-8 w-8 text-zinc-600" />
           <p className="text-sm font-medium text-zinc-400">Agent sẵn sàng</p>
           <p className="mt-1 text-[12px] text-zinc-600">
             Kế hoạch hiển thị khi Agent đang xử lý
@@ -673,7 +674,7 @@ function ReviewPanel({
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center">
         <div>
-          <div className="mb-3 text-3xl">✅</div>
+          <CheckCircle2Icon className="mb-3 h-8 w-8 text-zinc-600" />
           <p className="text-sm font-medium text-zinc-400">
             Chưa có kết quả review
           </p>
@@ -715,15 +716,15 @@ function ReviewPanel({
         </div>
         <div className="flex gap-3 text-[12px]">
           {critical.length > 0 && (
-            <span className="text-rose-400">🔴 {critical.length} Critical</span>
+            <span className="flex items-center gap-1 text-rose-400"><XCircle className="h-3 w-3" /> {critical.length} Critical</span>
           )}
           {warnings.length > 0 && (
-            <span className="text-amber-400">
-              🟡 {warnings.length} Warnings
+            <span className="flex items-center gap-1 text-amber-400">
+              <AlertTriangle className="h-3 w-3" /> {warnings.length} Warnings
             </span>
           )}
           {info.length > 0 && (
-            <span className="text-zinc-400">🔵 {info.length} Info</span>
+            <span className="flex items-center gap-1 text-zinc-400"><Info className="h-3 w-3" /> {info.length} Info</span>
           )}
         </div>
       </div>
@@ -736,12 +737,12 @@ function ReviewPanel({
             className="w-full px-4 py-3 text-left transition-colors hover:bg-zinc-900/50"
           >
             <div className="flex items-start gap-2">
-              <span className="mt-0.5 shrink-0 text-[13px]">
+              <span className="mt-0.5 shrink-0">
                 {f.severity === "critical"
-                  ? "🔴"
+                  ? <XCircle className="h-3.5 w-3.5 text-rose-400" />
                   : f.severity === "warning"
-                    ? "🟡"
-                    : "🔵"}
+                    ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                    : <Info className="h-3.5 w-3.5 text-zinc-400" />}
               </span>
               <div className="min-w-0">
                 <p className="text-[12.5px] leading-snug text-zinc-200">
@@ -781,7 +782,7 @@ function ProposalsPanel({
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center">
         <div>
-          <div className="mb-3 text-3xl">📋</div>
+          <ClipboardList className="mb-3 h-8 w-8 text-zinc-600" />
           <p className="text-sm font-medium text-zinc-400">Chưa có đề xuất</p>
           <p className="mt-1 text-[12px] text-zinc-600">
             Bật Edit và yêu cầu AI chỉnh sửa để tạo Proposal
@@ -1009,7 +1010,7 @@ function ChatPanel({
 
       {!editPermission && (
         <div className="flex items-center gap-1.5 border-t border-zinc-800 bg-zinc-900 px-3 py-1.5 text-[11px] text-zinc-500">
-          <span>🔒</span>
+          <Lock className="h-3.5 w-3.5 shrink-0" />
           <span>
             Chế độ đọc — bật <strong className="text-zinc-400">Edit</strong> để
             AI đề xuất thay đổi
@@ -1022,14 +1023,14 @@ function ChatPanel({
           <div className="mb-2 flex items-center gap-1.5 flex-wrap">
             {selectionLabel && (
               <span className="flex items-center gap-1 rounded-md border border-accent-500/30 bg-accent-500/10 px-2 py-0.5 text-[11px] text-accent-300">
-                <span>📍</span>
+                <MapPin className="h-3 w-3" />
                 <span className="font-mono font-semibold">{selectionLabel}</span>
                 <span className="text-accent-400/70">đang chọn</span>
               </span>
             )}
             {activeDrawingId && (
               <span className="flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300">
-                <span>📐</span>
+                <Ruler className="h-3 w-3" />
                 <span className="text-blue-400/70">Bản vẽ đang mở</span>
                 {selectedDrawingObjectType && (
                   <span className="font-semibold ml-1">{selectedDrawingObjectType}</span>

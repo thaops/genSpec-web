@@ -1,6 +1,5 @@
 "use client";
 
-import type { SVGProps } from "react";
 import type { Estimate } from "@/lib/types";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { cn, formatVnd, formatVndShort } from "@/lib/utils";
@@ -9,57 +8,16 @@ import { CostDonut, type DonutSlice } from "./CostDonut";
 import { TopCostDrivers } from "./TopCostDrivers";
 import { PipelineStatus } from "./PipelineStatus";
 import { ValidationPanel } from "../transparency/ValidationPanel";
+import { Boxes, HardHat, Wrench, Layers } from "lucide-react";
 
-const iconBase = {
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.8,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-};
-type IconProps = SVGProps<SVGSVGElement>;
-
-function BrickIcon(p: IconProps) {
-  return (
-    <svg {...iconBase} {...p}>
-      <rect x="3" y="4" width="18" height="6" rx="1" />
-      <rect x="3" y="14" width="18" height="6" rx="1" />
-      <path d="M12 4v6M7 14v6M17 14v6" />
-    </svg>
-  );
-}
-function WorkerIcon(p: IconProps) {
-  return (
-    <svg {...iconBase} {...p}>
-      <circle cx="12" cy="6" r="3" />
-      <path d="M5 21v-2a7 7 0 0114 0v2" />
-    </svg>
-  );
-}
-function MachineIcon(p: IconProps) {
-  return (
-    <svg {...iconBase} {...p}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
-    </svg>
-  );
-}
-function StackIcon(p: IconProps) {
-  return (
-    <svg {...iconBase} {...p}>
-      <path d="M12 3l9 5-9 5-9-5 9-5z" />
-      <path d="M3 13l9 5 9-5" />
-    </svg>
-  );
-}
+type IconComp = React.ComponentType<{ className?: string }>;
 
 interface CardDef {
   key: string;
   label: string;
   value: number;
   pct: number;
-  Icon: (p: IconProps) => React.ReactElement;
+  Icon: IconComp;
   accent: string;
 }
 
@@ -76,7 +34,7 @@ export function OverviewDashboard({ estimate }: { estimate: Estimate }) {
       label: t("overview.cardMaterial"),
       value: c.directMaterial,
       pct: pct(c.directMaterial),
-      Icon: BrickIcon,
+      Icon: Boxes,
       accent: "text-accent-300",
     },
     {
@@ -84,7 +42,7 @@ export function OverviewDashboard({ estimate }: { estimate: Estimate }) {
       label: t("overview.cardLabor"),
       value: c.directLabor,
       pct: pct(c.directLabor),
-      Icon: WorkerIcon,
+      Icon: HardHat,
       accent: "text-emerald-300",
     },
     {
@@ -92,7 +50,7 @@ export function OverviewDashboard({ estimate }: { estimate: Estimate }) {
       label: t("overview.cardMachine"),
       value: c.directMachine,
       pct: pct(c.directMachine),
-      Icon: MachineIcon,
+      Icon: Wrench,
       accent: "text-sky-300",
     },
     {
@@ -100,7 +58,7 @@ export function OverviewDashboard({ estimate }: { estimate: Estimate }) {
       label: t("overview.cardOverhead"),
       value: c.overhead,
       pct: pct(c.overhead),
-      Icon: StackIcon,
+      Icon: Layers,
       accent: "text-violet-300",
     },
   ];

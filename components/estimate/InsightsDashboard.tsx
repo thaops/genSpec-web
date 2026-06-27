@@ -1,8 +1,10 @@
 "use client";
 
+import type React from "react";
 import type { Estimate, CostSummary, Costs } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatVndShort, formatVnd } from "@/lib/utils";
+import { BarChart3, Hash, ClipboardList, Box, Bot } from "lucide-react";
 
 // ---- Semantic Layer ----
 function semantic(e: Estimate) {
@@ -269,8 +271,8 @@ export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
     <div className="flex h-full flex-col overflow-hidden bg-zinc-950">
       {/* Header */}
       <div className="shrink-0 border-b border-zinc-800 px-5 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          📊 Project Intelligence
+        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <BarChart3 className="h-3.5 w-3.5" /> Project Intelligence
         </p>
         <p className="mt-0.5 text-[11px] text-zinc-600">
           {estimate.name}
@@ -432,14 +434,14 @@ export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
             <Card title="Chất lượng dữ liệu">
               <div className="space-y-3">
                 <Metric
-                  icon="🔢"
+                  icon={<Hash className="h-3.5 w-3.5" />}
                   label="Công thức"
                   value={String(s.totalFormulas)}
                   sub="trong workbook"
                   good={s.totalFormulas > 0}
                 />
                 <Metric
-                  icon="📋"
+                  icon={<ClipboardList className="h-3.5 w-3.5" />}
                   label="Công tác trùng"
                   value={String(s.dupTk)}
                   sub={`/ ${estimate.takeoff.length} công tác`}
@@ -447,7 +449,7 @@ export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
                   warn={s.dupTk > 0}
                 />
                 <Metric
-                  icon="🧱"
+                  icon={<Box className="h-3.5 w-3.5" />}
                   label="Vật tư trùng mã"
                   value={String(s.dupMat)}
                   sub={`/ ${s.matTotal} vật tư`}
@@ -455,7 +457,7 @@ export function InsightsDashboard({ estimate }: { estimate: Estimate }) {
                   warn={s.dupMat > 0}
                 />
                 <Metric
-                  icon="🤖"
+                  icon={<Bot className="h-3.5 w-3.5" />}
                   label="Giá AI (cần xác minh)"
                   value={String(s.matAI)}
                   sub={`/ ${s.matTotal} vật tư`}
@@ -566,9 +568,9 @@ function SourceRow({
         <div style={{ width: `${noSrcPct}%` }} className="bg-zinc-700" />
       </div>
       <div className="flex gap-3 text-[10px] text-zinc-600">
-        <span>🟢 Có nguồn {govt + supplier}</span>
-        {ai > 0 && <span>🟡 AI {ai}</span>}
-        {noSource - ai > 0 && <span>⬜ Không nguồn {noSource - ai}</span>}
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Có nguồn {govt + supplier}</span>
+        {ai > 0 && <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> AI {ai}</span>}
+        {noSource - ai > 0 && <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-zinc-700" /> Không nguồn {noSource - ai}</span>}
       </div>
     </div>
   );
@@ -583,7 +585,7 @@ function Metric({
   warn,
   critical,
 }: {
-  icon: string;
+  icon: React.ReactNode;
   label: string;
   value: string;
   sub?: string;
@@ -600,7 +602,7 @@ function Metric({
     : "text-zinc-300";
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm">{icon}</span>
+      <span className="shrink-0 text-zinc-500">{icon}</span>
       <span className="flex-1 text-xs text-zinc-400">{label}</span>
       <span className={cn("text-xs font-semibold tabular-nums", valueColor)}>
         {value}

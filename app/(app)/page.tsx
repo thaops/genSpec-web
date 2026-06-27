@@ -8,6 +8,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import { setPendingTask, type TaskType } from "@/lib/pendingTask";
 import type { EstimateListItem, OfficialFeedItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { X, Plus, Building2, Search, Ruler, BarChart3, ScanSearch, DollarSign, FileText, CheckCircle2 } from "lucide-react";
 
 // ── Formatters ───────────────────────────────────────────────
 function fmtDate(iso: string) {
@@ -108,7 +109,7 @@ function WorkspaceCard({
                 {initials}
               </span>
             ) : (
-              <span className="text-4xl opacity-20">🏗️</span>
+              <Building2 className="h-10 w-10 text-white/20" />
             )}
           </div>
         )}
@@ -119,7 +120,7 @@ function WorkspaceCard({
         {/* Drawing badge on thumbnail */}
         {est.drawingCount > 0 && (
           <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-zinc-300 backdrop-blur-sm">
-            <span>📐</span>
+            <Ruler className="h-3 w-3" />
             <span>{est.drawingCount}</span>
           </div>
         )}
@@ -144,12 +145,12 @@ function WorkspaceCard({
         {/* Stats chips */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="flex items-center gap-1 text-[11px] text-zinc-500">
-            <span>📊</span>
+            <BarChart3 className="h-3 w-3" />
             <span>{est.itemCount} BOQ</span>
           </span>
           {est.drawingCount > 0 && (
             <span className="flex items-center gap-1 text-[11px] text-zinc-500">
-              <span>📐</span>
+              <Ruler className="h-3 w-3" />
               <span>{est.drawingCount} Drawings</span>
             </span>
           )}
@@ -172,7 +173,7 @@ function WorkspaceCard({
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800 py-16 text-center">
-      <div className="mb-3 text-4xl">🏗️</div>
+      <Building2 className="mb-3 h-8 w-8 text-zinc-600" />
       <p className="text-[13px] font-medium text-zinc-400">Chào mừng đến GenSpec</p>
       <p className="mt-1 text-[12px] text-zinc-600">
         Tạo workspace đầu tiên để bắt đầu lập dự toán
@@ -300,7 +301,7 @@ export default function HomePage() {
                 onClick={() => setPendingAction(null)}
                 className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
               >
-                ✕
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
             <div className="max-h-72 overflow-y-auto p-2">
@@ -315,8 +316,8 @@ export default function HomePage() {
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={est.thumbnail} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs text-zinc-600">
-                        🏗️
+                      <div className="flex h-full w-full items-center justify-center text-zinc-700">
+                        <Building2 className="h-4 w-4" />
                       </div>
                     )}
                   </div>
@@ -340,7 +341,7 @@ export default function HomePage() {
                 disabled={creating}
                 className="flex items-center gap-1.5 text-[12px] text-zinc-500 transition-colors hover:text-accent-400 disabled:opacity-40"
               >
-                <span>＋</span> Tạo workspace mới
+                <Plus className="h-3 w-3" /> Tạo workspace mới
               </button>
             </div>
           </div>
@@ -354,9 +355,7 @@ export default function HomePage() {
           {/* Search + New */}
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">
-                🔎
-              </span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
               <input
                 type="text"
                 value={search}
@@ -385,7 +384,7 @@ export default function HomePage() {
                 onClick={() => triggerAction("review")}
                 className="group flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3.5 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/60"
               >
-                <span className="text-xl">🔍</span>
+                <Search className="h-5 w-5 text-blue-400 shrink-0" />
                 <div>
                   <div className="text-[13px] font-medium text-zinc-200 group-hover:text-white">
                     Review Workbook
@@ -400,7 +399,7 @@ export default function HomePage() {
                 onClick={() => triggerAction("price_update", { province: "TP.HCM" })}
                 className="group flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3.5 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/60"
               >
-                <span className="text-xl">💰</span>
+                <DollarSign className="h-5 w-5 text-emerald-400 shrink-0" />
                 <div>
                   <div className="text-[13px] font-medium text-zinc-200 group-hover:text-white">
                     Update Prices

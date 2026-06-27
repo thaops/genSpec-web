@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Search, X } from "lucide-react";
 import type { DrawingIndexEntry, DrawingObject, DrawingLayer } from "@/lib/types";
 
 interface DrawingSearchProps {
@@ -189,7 +190,7 @@ export function DrawingSearch({
     <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 w-80 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl overflow-hidden">
       {/* Input */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
-        <span className="text-zinc-500 text-sm">🔎</span>
+        <Search className="h-4 w-4 text-zinc-500" />
         <input
           ref={inputRef}
           value={query}
@@ -199,7 +200,7 @@ export function DrawingSearch({
           className="flex-1 bg-transparent text-sm text-zinc-200 placeholder-zinc-600 outline-none"
         />
         {query && (
-          <button onClick={() => setQuery("")} className="text-zinc-600 hover:text-zinc-400 text-xs">✕</button>
+          <button onClick={() => setQuery("")} className="text-zinc-600 hover:text-zinc-400"><X className="h-3.5 w-3.5" /></button>
         )}
         <button onClick={onClose} className="text-zinc-600 hover:text-zinc-400 text-xs ml-1">ESC</button>
       </div>

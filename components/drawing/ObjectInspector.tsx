@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Search, X, Sparkles, ClipboardList } from "lucide-react";
 import type { DrawingObject, DrawingRevision } from "@/lib/types";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -74,7 +75,7 @@ export function ObjectInspector({
   if (!object) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-2 p-6 text-center">
-        <span className="text-3xl">🔍</span>
+        <Search className="h-8 w-8 text-zinc-600" />
         <p className="text-xs">Click vào đối tượng trong bản vẽ để xem</p>
       </div>
     );
@@ -99,7 +100,7 @@ export function ObjectInspector({
           </div>
         </div>
         {onClose && (
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 text-xs shrink-0 ml-1">✕</button>
+          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 shrink-0 ml-1"><X className="h-3.5 w-3.5" /></button>
         )}
       </div>
 
@@ -186,7 +187,7 @@ export function ObjectInspector({
                   onClick={() => onGenerateTakeoff?.(object)}
                   className="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs transition-colors"
                 >
-                  ✨ Generate Takeoff
+                  <Sparkles className="h-3 w-3 mr-1 inline" /> Generate Takeoff
                 </button>
               </div>
             )}
@@ -244,10 +245,10 @@ export function ObjectInspector({
               onClick={() => onGenerateTakeoff?.(object)}
               className="w-full px-3 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition-colors"
             >
-              ✨ Generate Takeoff
+              <Sparkles className="h-3 w-3 mr-1 inline" /> Generate Takeoff
             </button>
             <button className="w-full px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors">
-              📋 Review AI findings
+              <ClipboardList className="h-3 w-3 mr-1 inline" /> Review AI findings
             </button>
           </div>
         )}

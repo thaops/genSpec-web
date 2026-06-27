@@ -26,6 +26,7 @@ import type { WorkspaceView } from "@/components/estimate/explorer/ExplorerPanel
 import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
 import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
 import { SplitView } from "@/components/drawing/SplitView";
+import { AlertTriangle, BarChart3 } from "lucide-react";
 
 export default function EstimateEditorPage() {
   const { t } = useT();
@@ -298,7 +299,7 @@ export default function EstimateEditorPage() {
             return (
               <div className="bg-zinc-900 border-b border-amber-500/20 px-4 py-2 flex items-center justify-between text-xs text-amber-300 shrink-0">
                 <div className="flex items-center gap-2">
-                  <span>⚠️</span>
+                  <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
                   <span>
                     Hệ thống nhận diện đây là <strong>{sheetType === "material" ? "Bảng Giá vật tư" : "Bảng BOQ"}</strong> (Độ tin cậy: {Math.round(confidence * 100)}%).
                   </span>
@@ -342,7 +343,7 @@ export default function EstimateEditorPage() {
         </>
       ) : viewMode === "workbook" ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 space-y-3">
-          <span className="text-4xl">📊</span>
+          <BarChart3 className="h-10 w-10 text-zinc-700" />
           <p className="text-sm">Create a new sheet or select an existing one to begin</p>
           <Button onClick={handleAddSheet}>Create First Sheet</Button>
         </div>

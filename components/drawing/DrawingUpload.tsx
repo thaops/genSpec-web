@@ -5,6 +5,7 @@ import type { Drawing } from "@/lib/types";
 import { api, ApiError } from "@/lib/api";
 import { Spinner } from "@/components/ui/Button";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
+import { FolderOpen } from "lucide-react";
 
 const ACCEPTED = ".pdf,.dxf,.dwg,.jpg,.jpeg,.png";
 
@@ -161,7 +162,7 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 text-center px-4">
-          <span className="text-3xl">📂</span>
+          <FolderOpen className="h-8 w-8 text-zinc-500" />
           <p className="text-sm text-zinc-300">Kéo thả hoặc click để tải bản vẽ</p>
           <p className="text-xs text-zinc-600">PDF, DXF, DWG, PNG, JPG</p>
         </div>

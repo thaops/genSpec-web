@@ -1,31 +1,34 @@
 "use client";
 
+import type React from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { usePrefersReducedMotion } from "@/lib/hooks";
 import { SparkleIcon, CheckCircleIcon } from "@/components/ui/icons";
+import {
+  Search, Ruler, Box, Wrench, HardHat, DollarSign, Link, BarChart3,
+  FlaskConical, CheckCircle2, FileText,
+} from "lucide-react";
 
 export interface TimelineStep {
   text: string;
   at: string; // HH:MM:SS
 }
 
-// Pick a glyph for a reasoning step from keywords — gives the timeline
-// a scannable, "alive" feel instead of identical bullet points.
-function stepIcon(text: string): string {
+function stepIcon(text: string): React.ReactNode {
   const s = text.toLowerCase();
-  if (/phân tích|yêu cầu|loại công trình/.test(s)) return "🔍";
-  if (/bóc tách|khối lượng(?!.*bê)/.test(s)) return "📐";
-  if (/bê ?tông/.test(s)) return "🧱";
-  if (/thép|cốt thép/.test(s)) return "🦾";
-  if (/nhân công|lương|chi phí nc/.test(s)) return "👷";
-  if (/giá|vật liệu|vật tư|tra cứu|thu thập/.test(s)) return "💰";
-  if (/nguồn|tham chiếu/.test(s)) return "🔗";
-  if (/benchmark|suất đầu tư|đối chiếu|thị trường/.test(s)) return "📊";
-  if (/kiểm tra|hợp lý|đồng bộ|tính hợp/.test(s)) return "🧪";
-  if (/hoàn thành|báo cáo|tổng hợp/.test(s)) return "✅";
-  if (/bản vẽ|ảnh|đọc/.test(s)) return "📄";
-  return "•";
+  if (/phân tích|yêu cầu|loại công trình/.test(s)) return <Search className="h-3 w-3" />;
+  if (/bóc tách|khối lượng(?!.*bê)/.test(s)) return <Ruler className="h-3 w-3" />;
+  if (/bê ?tông/.test(s)) return <Box className="h-3 w-3" />;
+  if (/thép|cốt thép/.test(s)) return <Wrench className="h-3 w-3" />;
+  if (/nhân công|lương|chi phí nc/.test(s)) return <HardHat className="h-3 w-3" />;
+  if (/giá|vật liệu|vật tư|tra cứu|thu thập/.test(s)) return <DollarSign className="h-3 w-3" />;
+  if (/nguồn|tham chiếu/.test(s)) return <Link className="h-3 w-3" />;
+  if (/benchmark|suất đầu tư|đối chiếu|thị trường/.test(s)) return <BarChart3 className="h-3 w-3" />;
+  if (/kiểm tra|hợp lý|đồng bộ|tính hợp/.test(s)) return <FlaskConical className="h-3 w-3" />;
+  if (/hoàn thành|báo cáo|tổng hợp/.test(s)) return <CheckCircle2 className="h-3 w-3" />;
+  if (/bản vẽ|ảnh|đọc/.test(s)) return <FileText className="h-3 w-3" />;
+  return <span className="text-[8px]">•</span>;
 }
 
 // Realtime list of streamed reasoning steps. The last item is "current"

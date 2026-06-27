@@ -10,6 +10,7 @@ import {
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { CheckCircle2, X, Info } from "lucide-react";
 
 type ToastTone = "success" | "error" | "info";
 interface Toast {
@@ -75,7 +76,7 @@ const toneStyles: Record<ToastTone, { ring: string; icon: ReactNode }> = {
     ring: "border-emerald-500/30",
     icon: (
       <span className="text-emerald-400">
-        <Check />
+        <CheckCircle2 className="h-4 w-4" />
       </span>
     ),
   },
@@ -83,7 +84,7 @@ const toneStyles: Record<ToastTone, { ring: string; icon: ReactNode }> = {
     ring: "border-rose-500/30",
     icon: (
       <span className="text-rose-400">
-        <Cross />
+        <X className="h-4 w-4" />
       </span>
     ),
   },
@@ -91,7 +92,7 @@ const toneStyles: Record<ToastTone, { ring: string; icon: ReactNode }> = {
     ring: "border-accent-500/30",
     icon: (
       <span className="text-accent-300">
-        <Info />
+        <Info className="h-4 w-4" />
       </span>
     ),
   },
@@ -119,38 +120,8 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
         className="shrink-0 text-zinc-500 transition-colors hover:text-zinc-300"
         aria-label={t("common.cancel")}
       >
-        <Cross />
+        <X className="h-4 w-4" />
       </button>
     </div>
-  );
-}
-
-function Check() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-      <path
-        fillRule="evenodd"
-        d="M16.7 5.3a1 1 0 010 1.4l-7 7a1 1 0 01-1.4 0l-3-3a1 1 0 011.4-1.4l2.3 2.3 6.3-6.3a1 1 0 011.4 0z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-function Cross() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-      <path d="M6.3 6.3a1 1 0 011.4 0L10 8.6l2.3-2.3a1 1 0 111.4 1.4L11.4 10l2.3 2.3a1 1 0 01-1.4 1.4L10 11.4l-2.3 2.3a1 1 0 01-1.4-1.4L8.6 10 6.3 7.7a1 1 0 010-1.4z" />
-    </svg>
-  );
-}
-function Info() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-      <path
-        fillRule="evenodd"
-        d="M10 18a8 8 0 100-16 8 8 0 000 16zM11 7a1 1 0 11-2 0 1 1 0 012 0zm-1 2a1 1 0 00-1 1v3a1 1 0 102 0v-3a1 1 0 00-1-1z"
-        clipRule="evenodd"
-      />
-    </svg>
   );
 }

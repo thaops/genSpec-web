@@ -3,16 +3,18 @@
 import { useState } from "react";
 import type { PendingTask, TaskType } from "@/lib/pendingTask";
 import { cn } from "@/lib/utils";
+import { Search, DollarSign, Hash, BarChart3, Sparkles, ScrollText, X } from "lucide-react";
+import type React from "react";
 
 // ── Meta ──────────────────────────────────────────────────────────────────────
 
-const TASK_META: Record<TaskType, { icon: string; label: string; color: string }> = {
-  review:       { icon: "🔍", label: "Review Agent",       color: "text-blue-300 bg-blue-500/10 border-blue-700/40" },
-  price_update: { icon: "💰", label: "Price Update Agent", color: "text-emerald-300 bg-emerald-500/10 border-emerald-700/40" },
-  code_lookup:  { icon: "🔢", label: "Code Lookup",        color: "text-amber-300 bg-amber-500/10 border-amber-700/40" },
-  boq_analysis: { icon: "📊", label: "BOQ Analysis Agent", color: "text-violet-300 bg-violet-500/10 border-violet-700/40" },
-  optimize:     { icon: "✨", label: "Optimization Agent", color: "text-rose-300 bg-rose-500/10 border-rose-700/40" },
-  legal:        { icon: "📜", label: "Legal Agent",        color: "text-cyan-300 bg-cyan-500/10 border-cyan-700/40" },
+const TASK_META: Record<TaskType, { Icon: React.ComponentType<{ className?: string }>; label: string; color: string }> = {
+  review:       { Icon: Search,      label: "Review Agent",       color: "text-blue-300 bg-blue-500/10 border-blue-700/40" },
+  price_update: { Icon: DollarSign,  label: "Price Update Agent", color: "text-emerald-300 bg-emerald-500/10 border-emerald-700/40" },
+  code_lookup:  { Icon: Hash,        label: "Code Lookup",        color: "text-amber-300 bg-amber-500/10 border-amber-700/40" },
+  boq_analysis: { Icon: BarChart3,   label: "BOQ Analysis Agent", color: "text-violet-300 bg-violet-500/10 border-violet-700/40" },
+  optimize:     { Icon: Sparkles,    label: "Optimization Agent", color: "text-rose-300 bg-rose-500/10 border-rose-700/40" },
+  legal:        { Icon: ScrollText,  label: "Legal Agent",        color: "text-cyan-300 bg-cyan-500/10 border-cyan-700/40" },
 };
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
@@ -339,11 +341,11 @@ export function TaskCard({ task, estimateName, onRun, onDismiss }: TaskCardProps
       <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5">
         <span
           className={cn(
-            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-sm",
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border",
             meta.color,
           )}
         >
-          {meta.icon}
+          <meta.Icon className="h-3.5 w-3.5" />
         </span>
         <div className="min-w-0 flex-1">
           <span className="text-[13px] font-semibold text-zinc-200">{meta.label}</span>
@@ -357,7 +359,7 @@ export function TaskCard({ task, estimateName, onRun, onDismiss }: TaskCardProps
           className="ml-1 shrink-0 rounded p-0.5 text-zinc-600 transition-colors hover:text-zinc-400"
           aria-label="Dismiss"
         >
-          ✕
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
 

@@ -4,23 +4,27 @@ import { useEffect, useState } from "react";
 import type { AppNotification } from "@/lib/types";
 import { api } from "@/lib/api";
 import { JobCenter, useJobCount } from "./JobCenter";
+import {
+  Bell, X, Settings, DollarSign, CheckCircle2, ClipboardList,
+  Ruler, Download, XCircle,
+} from "lucide-react";
 
-const TYPE_ICONS: Record<string, string> = {
-  price_updated: "💰",
-  review_done: "✅",
-  proposal_ready: "📋",
-  drawing_parsed: "📐",
-  export_done: "📥",
-  job_failed: "❌",
+const TYPE_ICON: Record<string, React.ReactNode> = {
+  price_updated:  <DollarSign   className="h-4 w-4" />,
+  review_done:    <CheckCircle2 className="h-4 w-4" />,
+  proposal_ready: <ClipboardList className="h-4 w-4" />,
+  drawing_parsed: <Ruler        className="h-4 w-4" />,
+  export_done:    <Download     className="h-4 w-4" />,
+  job_failed:     <XCircle      className="h-4 w-4" />,
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  price_updated: "text-emerald-400",
-  review_done: "text-blue-400",
+  price_updated:  "text-emerald-400",
+  review_done:    "text-blue-400",
   proposal_ready: "text-accent-400",
   drawing_parsed: "text-purple-400",
-  export_done: "text-zinc-300",
-  job_failed: "text-rose-400",
+  export_done:    "text-zinc-300",
+  job_failed:     "text-rose-400",
 };
 
 export function NotificationBell() {
@@ -41,7 +45,6 @@ export function NotificationBell() {
       .finally(() => setLoading(false));
   }, [open]);
 
-  // Poll every 30s
   useEffect(() => {
     const iv = setInterval(() => {
       api.getNotifications().then(setNotifications).catch(() => {});
@@ -60,51 +63,51 @@ export function NotificationBell() {
 
   return (
     <>
-      {/* Bell button */}
       <div className="relative">
         <button
           onClick={() => setOpen(!open)}
-          className="relative flex items-center justify-center w-8 h-8 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="relative flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
           title="Thông báo & Jobs"
         >
-          <span className="text-base">🔔</span>
+          <Bell className="h-4 w-4" />
           {totalBadge > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 flex items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white px-0.5">
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-blue-600 px-0.5 text-[9px] font-bold text-white">
               {totalBadge > 9 ? "9+" : totalBadge}
             </span>
           )}
         </button>
 
-        {/* Notification dropdown */}
         {open && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <div className="absolute top-full right-0 mt-1 z-50 w-80 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl overflow-hidden">
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800">
+            <div className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2.5">
                 <span className="text-sm font-semibold text-zinc-100">Notifications</span>
                 <div className="flex items-center gap-2">
-                  {/* Job center button */}
                   <button
                     onClick={() => { setOpen(false); setJobCenterOpen(true); }}
-                    className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-colors ${
+                    className={`flex items-center gap-1 rounded px-2 py-1 text-[10px] transition-colors ${
                       jobCount > 0 ? "bg-blue-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
                     }`}
                   >
-                    <span>⚙️</span>
+                    <Settings className="h-3 w-3" />
                     <span>Jobs {jobCount > 0 ? `(${jobCount})` : ""}</span>
                   </button>
-                  <button onClick={() => setOpen(false)} className="text-zinc-500 hover:text-zinc-300 text-xs">✕</button>
+                  <button
+                    onClick={() => setOpen(false)}
+                    className="text-zinc-500 hover:text-zinc-300"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
 
-              {/* Notifications list */}
               <div className="max-h-80 overflow-y-auto">
                 {loading && (
                   <div className="py-6 text-center text-xs text-zinc-600">Đang tải...</div>
                 )}
                 {!loading && notifications.length === 0 && (
-                  <div className="py-10 text-center text-zinc-600 text-sm">
+                  <div className="py-10 text-center text-sm text-zinc-600">
                     Không có thông báo
                   </div>
                 )}
@@ -112,28 +115,30 @@ export function NotificationBell() {
                   <div
                     key={n.id}
                     onClick={() => markRead(n.id)}
-                    className={`flex items-start gap-3 px-4 py-3 border-b border-zinc-800/50 last:border-0 cursor-pointer hover:bg-zinc-800/40 transition-colors ${
+                    className={`flex cursor-pointer items-start gap-3 border-b border-zinc-800/50 px-4 py-3 transition-colors last:border-0 hover:bg-zinc-800/40 ${
                       !n.read ? "bg-zinc-800/20" : ""
                     }`}
                   >
-                    <span className="text-base shrink-0 mt-0.5">{TYPE_ICONS[n.type] ?? "🔔"}</span>
+                    <span className={`mt-0.5 shrink-0 ${TYPE_COLORS[n.type] ?? "text-zinc-400"}`}>
+                      {TYPE_ICON[n.type] ?? <Bell className="h-4 w-4" />}
+                    </span>
                     <div className="min-w-0 flex-1">
                       <div className={`text-xs font-medium ${TYPE_COLORS[n.type] ?? "text-zinc-300"}`}>
                         {n.message}
                       </div>
-                      <div className="text-[10px] text-zinc-600 mt-0.5">
+                      <div className="mt-0.5 text-[10px] text-zinc-600">
                         {new Date(n.createdAt).toLocaleString("vi-VN")}
                       </div>
                     </div>
                     {!n.read && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 mt-1.5" />
+                      <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
                     )}
                   </div>
                 ))}
               </div>
 
               {notifications.length > 0 && (
-                <div className="px-4 py-2 border-t border-zinc-800">
+                <div className="border-t border-zinc-800 px-4 py-2">
                   <button
                     onClick={() => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))}
                     className="text-[10px] text-zinc-600 hover:text-zinc-400"

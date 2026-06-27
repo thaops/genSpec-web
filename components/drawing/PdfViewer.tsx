@@ -10,6 +10,7 @@ import { ThumbnailNavigator } from "./ThumbnailNavigator";
 import { Minimap } from "./Minimap";
 import { DrawingSearch } from "./DrawingSearch";
 import { Spinner } from "@/components/ui/Button";
+import { Search } from "lucide-react";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -170,7 +171,7 @@ export function PdfViewer({
               className={`px-1.5 py-1 rounded transition-colors ${showSearch ? "bg-zinc-700 text-zinc-200" : "hover:bg-zinc-800"}`}
               title="Tìm kiếm (Ctrl+F)"
             >
-              🔎
+              <Search className="h-4 w-4" />
             </button>
             {objectHighlights.length > 0 && (
               <span className="text-zinc-600 text-[10px] ml-1">{objectHighlights.length} objects</span>

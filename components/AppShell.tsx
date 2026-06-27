@@ -18,6 +18,7 @@ import { CommandPalette } from "./home/CommandPalette";
 import { ThemeToggle } from "./ui/ThemeToggle";
 import { LanguageToggle } from "./LanguageToggle";
 import { LogoutIcon } from "./ui/icons";
+import { Search, Home, FolderOpen, X, ClipboardList, Settings, Plus } from "lucide-react";
 
 
 function Avatar({ name }: { name: string }) {
@@ -123,7 +124,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setCmdOpen(true)}
             className="flex max-w-xs flex-1 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-left text-xs text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-400"
           >
-            <span>🔍</span>
+            <Search className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1 truncate">
               Search workspaces, materials, codes...
             </span>
@@ -171,13 +172,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               href="/"
               title="Home"
               className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition-colors",
+                "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
                 pathname === "/"
                   ? "bg-accent-500/15 text-accent-300"
                   : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300",
               )}
             >
-              🏠
+              <Home className="h-4 w-4" />
             </Link>
 
             {/* Workspaces toggle */}
@@ -185,13 +186,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               title="Workspaces"
               onClick={() => setWsOpen((o) => !o)}
               className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition-colors",
+                "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
                 wsOpen
                   ? "bg-zinc-800 text-zinc-200"
                   : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300",
               )}
             >
-              📁
+              <FolderOpen className="h-4 w-4" />
             </button>
 
             {/* Workspace flyout panel */}
@@ -203,9 +204,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   <button
                     onClick={() => setWsOpen(false)}
-                    className="text-[11px] text-zinc-600 hover:text-zinc-400"
+                    className="text-zinc-600 hover:text-zinc-400"
                   >
-                    ✕
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -225,7 +226,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             "bg-zinc-800/60 text-zinc-200",
                         )}
                       >
-                        <span className="shrink-0 text-sm">📋</span>
+                        <ClipboardList className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">{est.name}</span>
                       </Link>
                     ))
@@ -239,7 +240,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     }}
                     className="flex items-center gap-1.5 text-[11px] text-accent-400 transition-colors hover:text-accent-300"
                   >
-                    <span>＋</span> New Workspace
+                    <Plus className="h-3.5 w-3.5" /> New Workspace
                   </button>
                 </div>
               </div>
@@ -248,9 +249,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="mt-auto">
               <button
                 title="Settings"
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
               >
-                ⚙
+                <Settings className="h-4 w-4" />
               </button>
             </div>
           </aside>
