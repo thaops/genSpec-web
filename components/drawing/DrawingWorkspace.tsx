@@ -92,7 +92,7 @@ export function DrawingWorkspace({
 
   // Poll drawing status when not ready
   useEffect(() => {
-    if (!activeDrawing || activeDrawing.parseStatus === "ready" || activeDrawing.parseStatus === "failed") return;
+    if (!activeDrawing?.id || activeDrawing.parseStatus === "ready" || activeDrawing.parseStatus === "failed") return;
     const interval = setInterval(async () => {
       try {
         const updated = await api.getDrawing(estimateId, activeDrawing.id);
