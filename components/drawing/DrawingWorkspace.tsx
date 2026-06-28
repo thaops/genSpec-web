@@ -198,13 +198,11 @@ export function DrawingWorkspace({
   // Always serve files through API proxy — Cloudinary raw URLs return 401 (CDN ACL)
   const proxyUrl = `${API_URL}/estimates/${estimateId}/drawings/${activeDrawing.id}/file`;
 
-  const isPdf = isReady && activeDrawing.type === "pdf";
-  const dxfUrl = isReady
-    ? activeDrawing.type === "dxf" || activeDrawing.type === "dwg"
-      ? proxyUrl
-      : undefined
-    : undefined;
-  const isDxf  = !!dxfUrl;
+  const isPdf  = isReady && activeDrawing.type === "pdf";
+  // DXF viewer only handles ASCII DXF — DWG binary will crash dxf-viewer
+  const isDxf  = isReady && activeDrawing.type === "dxf";
+  const dxfUrl = isDxf ? proxyUrl : undefined;
+  const isDwg  = isReady && activeDrawing.type === "dwg";
   const isImage = isReady && activeDrawing.type === "image";
 
   return (
@@ -256,6 +254,31 @@ export function DrawingWorkspace({
               url={dxfUrl!}
               highlightObjectIds={objects.map((o) => o.id)}
             />
+          )}
+          {isDwg && (
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-zinc-500">
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-mono">DWG</span>
+                <p className="text-sm text-zinc-300 font-medium">{activeDrawing.name}</p>
+                {objects.length > 0 ? (
+                  <p className="text-xs text-zinc-500">
+                    {objects.length} objects đã được phân tích — mở Inspector để xem chi tiết
+                  </p>
+                ) : (
+                  <p className="text-xs text-zinc-600">
+                    Preview DWG không khả dụng. Dữ liệu objects đã được trích xuất từ backend.
+                  </p>
+                )}
+              </div>
+              {objects.length > 0 && (
+                <button
+                  onClick={() => setInspectorOpen(true)}
+                  className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
+                >
+                  Mở Inspector ({objects.length} objects)
+                </button>
+              )}
+            </div>
           )}
           {isProcessing && (
             <DrawingProcessingState drawing={activeDrawing} />
