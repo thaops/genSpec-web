@@ -61,6 +61,28 @@ const TEN_TAC_VU: Record<string, string> = {
   price_update: "Cập nhật giá",
 };
 
+// ── Task progress ─────────────────────────────────────────────
+function computeTaskProgress(est: EstimateListItem): {
+  pct: number;
+  nextAction: string;
+  doneSteps: number;
+  totalSteps: number;
+} {
+  const steps = [
+    est.drawingCount > 0,
+    est.drawingCount > 0, // assume detected if drawing exists
+    est.takeoffCount > 0,
+    (est.itemCount ?? 0) > 0 || (est.costs?.total ?? 0) > 0,
+  ];
+  const doneSteps = steps.filter(Boolean).length;
+  const totalSteps = steps.length;
+  const pct = Math.round((doneSteps / totalSteps) * 100);
+  const nextIdx = steps.findIndex((s) => !s);
+  const labels = ["Upload bản vẽ", "AI phân tích", "Bóc khối lượng", "Hoàn thiện BOQ"];
+  const nextAction = nextIdx >= 0 ? labels[nextIdx] : "Sẵn sàng xuất";
+  return { pct, nextAction, doneSteps, totalSteps };
+}
+
 // ── Workspace Card ────────────────────────────────────────────
 function WorkspaceCard({
   est,
@@ -70,6 +92,7 @@ function WorkspaceCard({
   onClick: () => void;
 }) {
   const status = workspaceStatus(est.updatedAt);
+  const task = computeTaskProgress(est);
   const [colors] = useState(() => placeholderColor(est.id));
   const [imgErr, setImgErr] = useState(false);
   const showImg = !!est.thumbnail && !imgErr;
@@ -114,10 +137,10 @@ function WorkspaceCard({
           </div>
         )}
 
-        {/* Overlay gradient at bottom for readability */}
+        {/* Overlay gradient */}
         <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-zinc-950/60 to-transparent" />
 
-        {/* Drawing badge on thumbnail */}
+        {/* Drawing badge */}
         {est.drawingCount > 0 && (
           <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-zinc-300 backdrop-blur-sm">
             <Ruler className="h-3 w-3" />
@@ -127,14 +150,12 @@ function WorkspaceCard({
       </div>
 
       {/* Card body */}
-      <div className="flex flex-1 flex-col gap-2 p-3.5">
-        {/* Name + code */}
+      <div className="flex flex-1 flex-col gap-2.5 p-3.5">
+        {/* Name */}
         <div>
-          <div className="flex items-start justify-between gap-2">
-            <span className="line-clamp-2 text-[13px] font-semibold leading-snug text-zinc-100 group-hover:text-white">
-              {est.name}
-            </span>
-          </div>
+          <span className="line-clamp-2 text-[13px] font-semibold leading-snug text-zinc-100 group-hover:text-white">
+            {est.name}
+          </span>
           {est.projectInfo?.location && (
             <p className="mt-0.5 truncate text-[11px] text-zinc-600">
               {est.projectInfo.location}
@@ -142,27 +163,32 @@ function WorkspaceCard({
           )}
         </div>
 
-        {/* Stats chips */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="flex items-center gap-1 text-[11px] text-zinc-500">
-            <BarChart3 className="h-3 w-3" />
-            <span>{est.itemCount} BOQ</span>
-          </span>
-          {est.drawingCount > 0 && (
-            <span className="flex items-center gap-1 text-[11px] text-zinc-500">
-              <Ruler className="h-3 w-3" />
-              <span>{est.drawingCount} Drawings</span>
-            </span>
-          )}
+        {/* Progress */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-zinc-500">{task.nextAction}</span>
+            <span className="text-zinc-600">{task.pct}%</span>
+          </div>
+          <div className="h-1 overflow-hidden rounded-full bg-zinc-800">
+            <div
+              className={cn(
+                "h-1 rounded-full transition-all duration-500",
+                task.pct === 100 ? "bg-emerald-500" : "bg-accent-500"
+              )}
+              style={{ width: `${task.pct}%` }}
+            />
+          </div>
         </div>
 
-        {/* Status + time */}
-        <div className="mt-auto flex items-center justify-between border-t border-zinc-800/60 pt-2.5">
+        {/* Footer */}
+        <div className="mt-auto flex items-center justify-between border-t border-zinc-800/60 pt-2">
           <div className="flex items-center gap-1.5">
             <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
-            <span className="text-[11px] text-zinc-500">{status.label}</span>
+            <span className="text-[11px] text-zinc-500">{fmtDate(est.updatedAt)}</span>
           </div>
-          <span className="text-[11px] text-zinc-600">{fmtDate(est.updatedAt)}</span>
+          <span className="text-[11px] font-medium text-accent-500 opacity-0 transition-opacity group-hover:opacity-100">
+            Tiếp tục →
+          </span>
         </div>
       </div>
     </button>
@@ -412,11 +438,11 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* Recent Workspaces */}
+          {/* Continue Working */}
           <section>
             <div className="mb-4 flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
-                Recent Workspaces
+                Continue Working
               </p>
               {estimates.length > 0 && (
                 <span className="text-[11px] text-zinc-700">{estimates.length} workspace</span>

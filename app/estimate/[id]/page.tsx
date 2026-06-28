@@ -27,6 +27,13 @@ import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
 import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
 import { SplitView } from "@/components/drawing/SplitView";
 import { AlertTriangle, BarChart3 } from "lucide-react";
+import type { DrawingObjectType } from "@/lib/types";
+
+const OBJECT_TYPE_VI: Partial<Record<DrawingObjectType, string>> = {
+  beam: "Dầm", column: "Cột", wall: "Tường", slab: "Sàn",
+  door: "Cửa", window: "Cửa sổ", stair: "Cầu thang",
+  footing: "Móng", pile: "Cọc", roof: "Mái",
+};
 
 export default function EstimateEditorPage() {
   const { t } = useT();
@@ -284,6 +291,28 @@ export default function EstimateEditorPage() {
     setTimeout(() => copilotRef.current?.send(prompt, []), 300);
   }
 
+  function handleObjectsLoaded(objects: DrawingObject[]) {
+    if (!copilotRef.current) return;
+    // Build per-type summary, top 4 types
+    const counts = objects.reduce<Partial<Record<DrawingObjectType, number>>>((acc, o) => {
+      acc[o.type] = (acc[o.type] ?? 0) + 1;
+      return acc;
+    }, {});
+    const topTypes = (Object.entries(counts) as [DrawingObjectType, number][])
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([type, count]) => `${count} ${OBJECT_TYPE_VI[type] ?? type}`);
+    const avgConf = Math.round(
+      objects.reduce((s, o) => s + o.confidence, 0) / objects.length * 100
+    );
+    const text =
+      `🔍 Phát hiện ${objects.length} đối tượng: ${topTypes.join(", ")}.\n` +
+      `Độ tin cậy trung bình: ${avgConf}%.\n\n` +
+      `Có muốn tạo Takeoff không?`;
+    setCollapsed(false);
+    copilotRef.current.injectMessage({ kind: "assistant", text });
+  }
+
   async function handleDeleteDrawing(drawingId: string) {
     try {
       await api.deleteDrawing(id, drawingId);
@@ -393,6 +422,7 @@ export default function EstimateEditorPage() {
       onGenerateTakeoff={handleGenerateTakeoff}
       drawings={drawings}
       onDrawingsChange={setDrawings}
+      onObjectsLoaded={handleObjectsLoaded}
       onViewportChange={(info) => {
         setDrawingViewport(info);
         setActiveDrawingId(info.drawingId);
@@ -465,6 +495,7 @@ export default function EstimateEditorPage() {
         {/* AI Sidebar */}
         <AgentConsole
           estimate={estimate}
+          drawings={drawings}
           onEstimateUpdated={applyEstimate}
           controlRef={copilotRef}
           collapsed={collapsed}

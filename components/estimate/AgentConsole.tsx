@@ -6,7 +6,9 @@ import type { Ref } from "react";
 import type {
   ConversationMessage,
   CopilotProposal,
+  Drawing,
   DrawingObject,
+  DrawingObjectType,
   Estimate,
   ReviewFinding,
   AiContext,
@@ -26,9 +28,10 @@ import { TaskCard } from "./TaskCard";
 
 export interface AgentHandle {
   send: (text: string, files: File[]) => void;
+  injectMessage: (msg: Pick<ConversationMessage, "kind" | "text">) => void;
 }
 
-type AgentTab = "plan" | "review" | "proposals" | "history" | "chat";
+type AgentTab = "today" | "chat" | "plan" | "review" | "proposals" | "history";
 
 interface ProposalItem {
   msgId: string;
@@ -43,6 +46,7 @@ const COLLAPSED_KEY = "genspec_copilot_collapsed";
 
 interface Props {
   estimate: Estimate;
+  drawings?: Drawing[];
   onEstimateUpdated: (e: Estimate) => void;
   controlRef?: Ref<AgentHandle>;
   collapsed: boolean;
@@ -63,6 +67,7 @@ interface Props {
 
 export function AgentConsole({
   estimate,
+  drawings = [],
   onEstimateUpdated,
   controlRef,
   collapsed,
@@ -76,7 +81,7 @@ export function AgentConsole({
   width,
 }: Props) {
   const toast = useToast();
-  const [tab, setTab] = useState<AgentTab>("chat");
+  const [tab, setTab] = useState<AgentTab>("today");
   const [thread, setThread] = useState<ConversationMessage[]>([]);
   const [proposals, setProposals] = useState<ProposalItem[]>([]);
   const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
@@ -452,11 +457,21 @@ export function AgentConsole({
     }
   }
 
-  // Expose send via controlRef
+  // Expose send + injectMessage via controlRef
   useEffect(() => {
     if (!controlRef || typeof controlRef !== "object") return;
     (controlRef as React.MutableRefObject<AgentHandle>).current = {
       send: (text: string, files: File[]) => send(text, files),
+      injectMessage: (msg) => {
+        const full: ConversationMessage = {
+          id: nextId(),
+          kind: msg.kind,
+          text: msg.text ?? "",
+          timestamp: new Date().toISOString(),
+        };
+        setThread((prev) => [...prev, full]);
+        setTab("chat");
+      },
     };
   });
 
@@ -486,11 +501,12 @@ export function AgentConsole({
   const warningCount = reviewFindings.filter((f) => f.severity === "warning").length;
 
   const TAB_LABELS: Record<AgentTab, string> = {
+    today: "Today",
+    chat: "Chat",
     plan: "Plan",
     review: "Review",
     proposals: "Proposals",
     history: "History",
-    chat: "Chat",
   };
 
   return (
@@ -540,7 +556,7 @@ export function AgentConsole({
 
       {/* Tabs */}
       <div className="flex items-center gap-0.5 border-b border-zinc-800 px-2 py-1">
-        {(["plan", "review", "proposals", "history", "chat"] as AgentTab[]).map(
+        {(["today", "chat", "plan", "review", "proposals", "history"] as AgentTab[]).map(
           (t) => {
             const badge =
               t === "proposals" && pendingProposals > 0
@@ -583,6 +599,9 @@ export function AgentConsole({
 
       {/* Tab content */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {tab === "today" && (
+          <TodayPanel estimate={estimate} drawings={drawings} onSwitchToChat={() => setTab("chat")} />
+        )}
         {tab === "plan" && (
           <PlanPanel steps={liveSteps} streaming={streaming} />
         )}
@@ -634,6 +653,139 @@ export function AgentConsole({
         )}
       </div>
     </aside>
+  );
+}
+
+// ── Today Panel ─────────────────────────────────────────────────────────────
+
+const OBJECT_TYPE_VI: Partial<Record<DrawingObjectType, string>> = {
+  beam: "Dầm", column: "Cột", wall: "Tường", slab: "Sàn",
+  door: "Cửa", window: "Cửa sổ", stair: "Cầu thang",
+  footing: "Móng", pile: "Cọc", roof: "Mái",
+};
+
+const STEP_HINTS: Record<string, string> = {
+  "Upload bản vẽ":    "Kéo thả file PDF, DXF hoặc DWG vào vùng Drawings",
+  "AI phân tích":     "AI đang xử lý bản vẽ — có thể làm việc khác trong lúc chờ",
+  "Bóc khối lượng":   "Chọn đối tượng trên bản vẽ → AI tạo Takeoff tự động",
+  "Điền đơn giá":     "Nhập vật tư, nhân công hoặc yêu cầu AI tra giá từ Sở XD",
+  "Review & Xuất F1": "Kiểm tra BOQ rồi Export F1.xlsx",
+};
+
+function TodayPanel({
+  estimate,
+  drawings,
+  onSwitchToChat,
+}: {
+  estimate: Estimate;
+  drawings: Drawing[];
+  onSwitchToChat: () => void;
+}) {
+  const hasDrawings  = drawings.length > 0;
+  const hasDetected  = drawings.some((d) => d.parseStatus === "ready");
+  const hasTakeoff   = (estimate.takeoff?.length ?? 0) > 0;
+  const hasResources = (estimate.analyses?.length ?? 0) > 0 || (estimate.materials?.length ?? 0) > 0;
+  const hasBoq       = (estimate.boq?.length ?? 0) > 0 || (estimate.costs?.total ?? 0) > 0;
+
+  const steps = [
+    { label: "Upload bản vẽ",    done: hasDrawings,  hint: hasDrawings ? `${drawings.length} bản vẽ` : null },
+    { label: "AI phân tích",     done: hasDetected,  hint: hasDetected ? "Hoàn thành" : hasDrawings ? "Đang xử lý..." : null },
+    { label: "Bóc khối lượng",   done: hasTakeoff,   hint: hasTakeoff ? `${estimate.takeoff.length} items` : null },
+    { label: "Điền đơn giá",     done: hasResources, hint: hasResources ? `${estimate.analyses.length} phân tích` : null },
+    { label: "Review & Xuất F1", done: hasBoq,       hint: hasBoq ? "BOQ sẵn sàng" : null },
+  ];
+
+  const activeIdx = steps.findIndex((s) => !s.done);
+  const doneCount = steps.filter((s) => s.done).length;
+  const pct = Math.round((doneCount / steps.length) * 100);
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 space-y-5">
+      {/* Overall progress */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between text-[11px]">
+          <span className="font-semibold uppercase tracking-wider text-zinc-600">Tiến độ dự án</span>
+          <span className="text-zinc-500">{pct}%</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-zinc-800">
+          <div
+            className="h-1.5 rounded-full bg-accent-500 transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Pipeline checklist */}
+      <div className="space-y-1">
+        {steps.map((step, i) => {
+          const isActive = i === activeIdx;
+          return (
+            <div
+              key={i}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors",
+                isActive ? "bg-accent-500/10 border border-accent-500/20" : ""
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+                  step.done
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : isActive
+                      ? "bg-accent-500/20 text-accent-400"
+                      : "bg-zinc-800 text-zinc-600"
+                )}
+              >
+                {step.done ? "✓" : i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <span
+                  className={cn(
+                    "text-[13px]",
+                    step.done
+                      ? "text-zinc-600 line-through"
+                      : isActive
+                        ? "font-medium text-zinc-100"
+                        : "text-zinc-400"
+                  )}
+                >
+                  {step.label}
+                </span>
+                {step.hint && (
+                  <span className="ml-2 text-[11px] text-zinc-600">{step.hint}</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Active step guidance */}
+      {activeIdx >= 0 && (
+        <div className="rounded-xl border border-accent-500/20 bg-accent-500/5 p-3 space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-accent-400">
+            Bước tiếp theo
+          </p>
+          <p className="text-[13px] leading-snug text-zinc-200">
+            {STEP_HINTS[steps[activeIdx].label] ?? steps[activeIdx].label}
+          </p>
+          <button
+            onClick={onSwitchToChat}
+            className="mt-1 text-[12px] text-accent-400 hover:text-accent-300 transition-colors"
+          >
+            Hỏi QS Agent →
+          </button>
+        </div>
+      )}
+
+      {activeIdx === -1 && (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <p className="text-[13px] font-medium text-emerald-400">Dự án sẵn sàng xuất ✓</p>
+          <p className="text-[12px] text-zinc-500 mt-0.5">Export F1.xlsx từ thanh công cụ trên cùng</p>
+        </div>
+      )}
+    </div>
   );
 }
 

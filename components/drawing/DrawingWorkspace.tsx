@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Drawing, DrawingObject } from "@/lib/types";
 import { api, API_URL } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
@@ -69,6 +69,8 @@ interface DrawingWorkspaceProps {
   drawings: Drawing[];
   onDrawingsChange?: (drawings: Drawing[]) => void;
   onViewportChange?: (info: DrawingViewportInfo) => void;
+  // Called once when a drawing first loads objects (auto-detection complete)
+  onObjectsLoaded?: (objects: DrawingObject[]) => void;
 }
 
 export function DrawingWorkspace({
@@ -80,6 +82,7 @@ export function DrawingWorkspace({
   drawings,
   onDrawingsChange,
   onViewportChange,
+  onObjectsLoaded,
 }: DrawingWorkspaceProps) {
   const [objects, setObjects] = useState<DrawingObject[]>([]);
   const [selectedObject, setSelectedObject] = useState<DrawingObject | null>(null);
@@ -88,6 +91,8 @@ export function DrawingWorkspace({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<DrawingTool>("pointer");
   const [viewport, setViewport] = useState({ page: 1, scale: 1.2, scrollX: 0, scrollY: 0 });
+  // Track drawings already announced to avoid duplicate notifications
+  const announcedDrawings = useRef<Set<string>>(new Set());
 
   const activeDrawing = drawings.find((d) => d.id === activeDrawingId);
 
@@ -111,7 +116,15 @@ export function DrawingWorkspace({
     if (activeDrawing?.parseStatus && activeDrawing.parseStatus !== 'ready') return;
     setLoadingObjects(true);
     api.getDrawing(estimateId, activeDrawingId)
-      .then((d) => setObjects(d.objects ?? []))
+      .then((d) => {
+        const objs = d.objects ?? [];
+        setObjects(objs);
+        // Fire once per drawing when AI detection results first arrive
+        if (objs.length > 0 && !announcedDrawings.current.has(activeDrawingId)) {
+          announcedDrawings.current.add(activeDrawingId);
+          onObjectsLoaded?.(objs);
+        }
+      })
       .catch(() => setObjects([]))
       .finally(() => setLoadingObjects(false));
   }, [estimateId, activeDrawingId, activeDrawing?.parseStatus]);
