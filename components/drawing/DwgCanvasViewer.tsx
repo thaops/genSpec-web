@@ -206,6 +206,17 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
       ctx.setLineDash([]);
       const cx = sx(pts[0][0]), cy = sy(pts[0][1]);
       const radius = typeof props.radius === "number" ? (props.radius as number) * scale : 0;
+      const rawText = props.text != null ? String(props.text) : "";
+
+      // Single-point objects: only render if it has meaningful content (text/radius).
+      // Pure insertion points (INSERT base points, degenerate entities) produce
+      // pink/colored dots that clutter the view without conveying real geometry.
+      const isInsertionDot = pts.length === 1 &&
+        radius < 0.3 && !rawText.trim() &&
+        (obj.type === "block" || (obj.rawType === "INSERT") ||
+         obj.type === "hatch" || obj.type === "viewport" || obj.type === "axis" ||
+         obj.type === "symbol");
+      if (!selected && isInsertionDot) continue;
 
       if (radius > 0.3) {
         const sa = typeof props.startAngle === "number" ? -(props.startAngle as number) * Math.PI / 180 : 0;
@@ -217,7 +228,6 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
       }
 
       if (obj.type === "text" || obj.type === "dimension") {
-        const rawText = props.text != null ? String(props.text) : "";
         if (!rawText.trim()) continue;
         const th = Number(props.textHeight ?? 0);
         const textPx = th > 0 ? th * scale : 0;
@@ -239,10 +249,9 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
         continue;
       }
 
-      // Skip insertion-point-only types unless selected
-      if (!selected && (obj.type === "block" || obj.type === "hatch" ||
-          obj.type === "viewport" || obj.type === "axis")) continue;
-
+      // Single-point objects: only render if it has meaningful content (text/radius).
+      // Pure insertion points (INSERT base points, degenerate entities) produce
+      // pink/colored dots that clutter the view without conveying real geometry.
       const sz = Math.max(1, 1.5 * scale);
       ctx.beginPath();
       ctx.moveTo(cx - sz, cy); ctx.lineTo(cx + sz, cy);
