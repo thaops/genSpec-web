@@ -105,15 +105,16 @@ export function DrawingWorkspace({
     return () => clearInterval(interval);
   }, [estimateId, activeDrawing?.id, activeDrawing?.parseStatus]);
 
-  // Load objects when drawing changes
+  // Load objects when drawing becomes ready (first select OR after parsing completes)
   useEffect(() => {
     if (!activeDrawingId) { setObjects([]); return; }
+    if (activeDrawing?.parseStatus && activeDrawing.parseStatus !== 'ready') return;
     setLoadingObjects(true);
     api.getDrawing(estimateId, activeDrawingId)
       .then((d) => setObjects(d.objects ?? []))
       .catch(() => setObjects([]))
       .finally(() => setLoadingObjects(false));
-  }, [estimateId, activeDrawingId]);
+  }, [estimateId, activeDrawingId, activeDrawing?.parseStatus]);
 
   // Notify parent when viewport changes
   useEffect(() => {
