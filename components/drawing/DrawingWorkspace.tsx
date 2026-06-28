@@ -5,6 +5,7 @@ import type { Drawing, DrawingObject } from "@/lib/types";
 import { api, API_URL } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 import { DxfViewer } from "./DxfViewer";
+import { DwgCanvasViewer } from "./DwgCanvasViewer";
 import { DrawingUpload } from "./DrawingUpload";
 import { ObjectInspector } from "./ObjectInspector";
 import { DrawingToolbar, type DrawingTool } from "./DrawingToolbar";
@@ -256,29 +257,11 @@ export function DrawingWorkspace({
             />
           )}
           {isDwg && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-zinc-500">
-              <div className="flex flex-col items-center gap-2">
-                <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-mono">DWG</span>
-                <p className="text-sm text-zinc-300 font-medium">{activeDrawing.name}</p>
-                {objects.length > 0 ? (
-                  <p className="text-xs text-zinc-500">
-                    {objects.length} objects đã được phân tích — mở Inspector để xem chi tiết
-                  </p>
-                ) : (
-                  <p className="text-xs text-zinc-600">
-                    Preview DWG không khả dụng. Dữ liệu objects đã được trích xuất từ backend.
-                  </p>
-                )}
-              </div>
-              {objects.length > 0 && (
-                <button
-                  onClick={() => setInspectorOpen(true)}
-                  className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
-                >
-                  Mở Inspector ({objects.length} objects)
-                </button>
-              )}
-            </div>
+            <DwgCanvasViewer
+              objects={objects}
+              selectedObjectId={selectedObject?.id}
+              onObjectClick={handleObjectSelect}
+            />
           )}
           {isProcessing && (
             <DrawingProcessingState drawing={activeDrawing} />
