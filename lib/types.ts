@@ -603,7 +603,7 @@ export type DrawingObjectType =
   | "door" | "window" | "opening" | "ramp" | "elevator"
   // CAD entities
   | "dimension" | "leader" | "block" | "polyline" | "hatch" | "text" | "symbol" | "viewport"
-  | "unknown";
+  | "axis" | "unknown";
 
 export interface DrawingObject {
   id: string;

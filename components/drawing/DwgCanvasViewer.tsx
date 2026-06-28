@@ -165,8 +165,8 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
 
       if (obj.type === "text" || obj.type === "dimension") {
         // ── Text rendering with LOD culling ───────────────────────────
-        const rawText = String(props.text ?? "");
-        if (!rawText || !rawText.trim()) continue;
+        const rawText = props.text != null ? String(props.text) : "";
+        if (!rawText.trim()) continue;
 
         const th = Number(props.textHeight ?? 0);
         const textPx = th > 0 ? th * scale : 0;
