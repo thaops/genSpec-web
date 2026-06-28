@@ -108,6 +108,10 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     bounds: null as Bounds | null,
     offsetX: 0, offsetY: 0, scale: 1,
     dragging: false, lastX: 0, lastY: 0,
+    // Track whether user has manually panned/zoomed; prevents ResizeObserver
+    // from resetting camera when inspector panel opens/closes.
+    userMovedCamera: false,
+    lastClickX: 0, lastClickY: 0, lastClickTime: 0,
   });
   stateRef.current.objects = objects;
   stateRef.current.selectedObjectId = selectedObjectId;
@@ -276,11 +280,11 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     }
   }
 
-  // ── Fit view ──────────────────────────────────────────────────────────────
+  // ── Fit view (explicit user action only) ─────────────────────────────────
   function fitView() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    if (canvas.offsetWidth > 0) { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; }
+    syncCanvasSize(canvas);
     const b = computeBounds(stateRef.current.objects);
     if (!b) { redraw(); return; }
     stateRef.current.bounds = b;
@@ -290,19 +294,77 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     stateRef.current.scale   = scale;
     stateRef.current.offsetX = (W - ww * scale) / 2;
     stateRef.current.offsetY = (H - wh * scale) / 2;
+    stateRef.current.userMovedCamera = false;
     redraw();
   }
 
-  useEffect(() => { fitView(); }, [objects]);          // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { redraw(); }, [selectedObjectId]);  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { redraw(); }, [colorMode]);         // eslint-disable-line react-hooks/exhaustive-deps
+  // Zoom so the given bounding box fills ~70% of the viewport
+  function zoomToBox(x: number, y: number, w: number, h: number) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const { bounds } = stateRef.current;
+    if (!bounds) return;
+    const W = canvas.width, H = canvas.height;
+    const pad = 0.3;
+    const scale = Math.min(W / (w || 1), H / (h || 1)) * (1 - pad);
+    const sx = (wx: number) => (wx - bounds.minX) * scale;
+    const sy = (wy: number) => (bounds.maxY - wy) * scale;
+    // Center the box in the viewport
+    const cx = sx(x + w / 2), cy = sy(y + h / 2);
+    stateRef.current.scale   = scale;
+    stateRef.current.offsetX = W / 2 - cx;
+    stateRef.current.offsetY = H / 2 - cy;
+    stateRef.current.userMovedCamera = true;
+    redraw();
+  }
 
+  // Sync canvas pixel size to CSS size without touching camera
+  function syncCanvasSize(canvas: HTMLCanvasElement) {
+    if (canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
+      canvas.width  = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    }
+  }
+
+  // Objects load → fit only if camera not yet set by user
+  useEffect(() => {
+    const s = stateRef.current;
+    if (!s.userMovedCamera || !s.bounds) fitView();
+    else { syncCanvasSize(canvasRef.current!); redraw(); }
+  }, [objects]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { redraw(); }, [selectedObjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { redraw(); }, [colorMode]);        // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ResizeObserver: resize canvas pixels, but do NOT reset camera.
+  // Inspector panel opening/closing resizes the canvas — this used to call
+  // fitView() which was perceived as "click entity → camera jumps".
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
-    const ro = new ResizeObserver(() => fitView());
+    const ro = new ResizeObserver(() => {
+      syncCanvasSize(c);
+      redraw();
+    });
     ro.observe(c);
     return () => ro.disconnect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keyboard: Space = fit, F = focus selected
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.code === 'Space') { e.preventDefault(); fitView(); }
+      if (e.code === 'KeyF') {
+        const sel = stateRef.current.objects.find(o =>
+          o.id === stateRef.current.selectedObjectId || o.stableId === stateRef.current.selectedObjectId
+        );
+        if (sel) zoomToBox(sel.boundingBox.x, sel.boundingBox.y, sel.boundingBox.w, sel.boundingBox.h);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onWheel(e: React.WheelEvent) {
@@ -314,6 +376,7 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     s.scale *= f;
     s.offsetX = mx - (mx - s.offsetX) * f;
     s.offsetY = my - (my - s.offsetY) * f;
+    s.userMovedCamera = true;
     redraw();
   }
 
@@ -326,21 +389,19 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
   function onMouseMove(e: React.MouseEvent) {
     const s = stateRef.current;
     if (!s.dragging) return;
-    s.offsetX += e.clientX - s.lastX; s.offsetY += e.clientY - s.lastY;
+    const dx = e.clientX - s.lastX, dy = e.clientY - s.lastY;
+    s.offsetX += dx; s.offsetY += dy;
     s.lastX = e.clientX; s.lastY = e.clientY;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) s.userMovedCamera = true;
     redraw();
   }
 
   function onMouseUp() { stateRef.current.dragging = false; }
 
-  function onCanvasClick(e: React.MouseEvent) {
-    if (!onObjectClick) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+  // Pick the nearest entity at canvas pixel (px, py)
+  function pickEntity(px: number, py: number): DrawingObject | null {
     const { scale, offsetX, offsetY, bounds, objects: objs } = stateRef.current;
-    if (!bounds) return;
+    if (!bounds) return null;
     const wx = (px - offsetX) / scale + bounds.minX;
     const wy = bounds.maxY - (py - offsetY) / scale;
     const HIT = 12 / scale;
@@ -351,7 +412,30 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
       const d = Math.hypot(wx - (x + w / 2), wy - (y + h / 2));
       if (d < bestDist) { bestDist = d; best = obj; }
     }
+    return best;
+  }
+
+  // Single click → select + open inspector (camera UNCHANGED)
+  function onCanvasClick(e: React.MouseEvent) {
+    if (!onObjectClick) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const best = pickEntity(e.clientX - rect.left, e.clientY - rect.top);
     if (best) onObjectClick(best);
+  }
+
+  // Double click → zoom to selected entity (CAD "zoom to selection" UX)
+  function onCanvasDoubleClick(e: React.MouseEvent) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const best = pickEntity(e.clientX - rect.left, e.clientY - rect.top);
+    if (best) {
+      const { x, y, w, h } = best.boundingBox;
+      zoomToBox(x, y, Math.max(w, 1), Math.max(h, 1));
+      onObjectClick?.(best);
+    }
   }
 
   const [showDebug, setShowDebug] = useState(false);
@@ -398,7 +482,8 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
             {colorMode === "semantic" ? "Semantic" : "CAD"}
           </button>
           <button onClick={() => setShowDebug(v => !v)} className={`px-2 py-0.5 rounded text-[10px] ${showDebug ? "bg-amber-800 text-amber-200" : "bg-zinc-800 text-zinc-500"}`}>DBG</button>
-          <button onClick={fitView} className="px-2 py-0.5 rounded hover:bg-zinc-800 text-zinc-400">Fit</button>
+          <button onClick={fitView} title="Fit all (Space)" className="px-2 py-0.5 rounded hover:bg-zinc-800 text-zinc-400">Fit</button>
+          <span className="text-zinc-700 text-[9px] select-none hidden sm:inline">DblClick=Zoom · F=Focus · Space=Fit</span>
         </div>
       </div>
 
@@ -433,6 +518,7 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
         onClick={onCanvasClick}
+        onDoubleClick={onCanvasDoubleClick}
       />
     </div>
   );
