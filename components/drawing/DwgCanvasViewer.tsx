@@ -345,9 +345,27 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     if (best) onObjectClick(best);
   }
 
+  const [showDebug, setShowDebug] = useState(false);
+
   const typeCounts: Record<string, number> = {};
   for (const o of objects) typeCounts[o.type] = (typeCounts[o.type] ?? 0) + 1;
   const topTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 7);
+
+  // Debug: top 15 entities by distance from median center
+  const debugInfo = (() => {
+    const b = stateRef.current.bounds;
+    if (!b || !objects.length) return null;
+    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    const outliers = [...objects]
+      .map(o => {
+        const ox = o.boundingBox.x + o.boundingBox.w / 2;
+        const oy = o.boundingBox.y + o.boundingBox.h / 2;
+        return { o, d: Math.hypot(ox - cx, oy - cy), ox, oy };
+      })
+      .sort((a, b) => b.d - a.d)
+      .slice(0, 15);
+    return { b, outliers };
+  })();
 
   return (
     <div className="relative flex flex-col h-full bg-zinc-900">
@@ -370,9 +388,31 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
           >
             {colorMode === "semantic" ? "Semantic" : "CAD"}
           </button>
+          <button onClick={() => setShowDebug(v => !v)} className={`px-2 py-0.5 rounded text-[10px] ${showDebug ? "bg-amber-800 text-amber-200" : "bg-zinc-800 text-zinc-500"}`}>DBG</button>
           <button onClick={fitView} className="px-2 py-0.5 rounded hover:bg-zinc-800 text-zinc-400">Fit</button>
         </div>
       </div>
+
+      {/* Debug overlay — top outlier entities by distance from drawing center */}
+      {showDebug && debugInfo && (
+        <div className="absolute top-10 right-2 z-20 bg-zinc-950/95 border border-amber-800/40 rounded p-2 text-[10px] font-mono max-w-xs max-h-80 overflow-y-auto shadow-xl">
+          <div className="text-amber-400 font-semibold mb-1">
+            Bounds [{Math.round(debugInfo.b.minX)},{Math.round(debugInfo.b.minY)}] → [{Math.round(debugInfo.b.maxX)},{Math.round(debugInfo.b.maxY)}]
+            &nbsp;({Math.round(debugInfo.b.maxX - debugInfo.b.minX)} × {Math.round(debugInfo.b.maxY - debugInfo.b.minY)})
+          </div>
+          <div className="text-zinc-500 mb-1.5">Top 15 outliers (by dist from center):</div>
+          {debugInfo.outliers.map(({ o, d, ox, oy }, i) => (
+            <div key={o.id ?? i} className="border-t border-zinc-800 py-0.5 text-zinc-400">
+              <span className="text-zinc-500">{i + 1}.</span>{" "}
+              <span className="text-amber-300">{o.properties?.rawType as string ?? o.rawType ?? o.type}</span>{" "}
+              <span className="text-zinc-500">{o.layer}</span>{" "}
+              <span className="text-rose-400">x={Math.round(ox)} y={Math.round(oy)}</span>{" "}
+              <span className="text-zinc-600">d={Math.round(d)}</span>
+              {o.properties?.handle ? <span className="text-zinc-600"> #{o.properties.handle}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
 
       <canvas
         ref={canvasRef}
