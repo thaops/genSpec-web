@@ -9,6 +9,7 @@ interface Props {
   onObjectClick?: (obj: DrawingObject) => void;
 }
 
+// Semantic color (dark theme)
 const TYPE_COLOR: Record<string, string> = {
   beam:      "#60a5fa",
   column:    "#34d399",
@@ -20,47 +21,68 @@ const TYPE_COLOR: Record<string, string> = {
   window:    "#38bdf8",
   opening:   "#7dd3fc",
   stair:     "#c084fc",
-  axis:      "#2a3a4a",
-  dimension: "#3a3a50",
-  leader:    "#3a3a50",
-  text:      "#5a6a7a",
+  ramp:      "#d946ef",
+  axis:      "#1e3040",
+  dimension: "#3a3a55",
+  leader:    "#3a3a55",
+  text:      "#4a5a6a",
   symbol:    "#4a4a5a",
   block:     "#4a4a5a",
-  hatch:     "#202028",
-  unknown:   "#3a3a42",
+  hatch:     "#1a1a22",
+  unknown:   "#38383f",
 };
 
-// ACI 1–9 standard colors
+// ACI color index → hex (standard 1–9)
 const ACI: Record<number, string> = {
-  1: "#ff4444", 2: "#ffff00", 3: "#00ee44",
-  4: "#00ffff", 5: "#4466ff", 6: "#ff44ff",
+  1: "#ff4444", 2: "#ffff44", 3: "#44ee44",
+  4: "#44ffff", 5: "#4466ff", 6: "#ff44ff",
   7: "#cccccc", 8: "#808080", 9: "#aaaaaa",
 };
 
-// Draw order: lower = rendered first (back)
+// Semantic linewidth (px at design scale) — ByLayer means we fall back to this
+const TYPE_LW: Record<string, number> = {
+  wall: 2.0, footing: 2.0, pile: 2.0,
+  beam: 1.5, column: 1.5, slab: 1.5,
+  stair: 1.2, door: 1.0, window: 1.0, opening: 1.0,
+  symbol: 0.7, block: 0.7, unknown: 0.7,
+  axis: 0.5, dimension: 0.5, leader: 0.5,
+  hatch: 0.4, text: 0.4,
+};
+
+// Draw order — back to front
 const DRAW_ORDER: Record<string, number> = {
-  hatch: 0, slab: 1,
+  hatch: 0, slab: 1, viewport: 1,
   wall: 2, footing: 2,
   beam: 3, column: 3, pile: 3, stair: 3,
   door: 4, window: 4, opening: 4,
-  unknown: 5, polyline: 5, block: 5, symbol: 5,
+  unknown: 5, block: 5, symbol: 5,
   axis: 6,
   dimension: 7, leader: 7,
   text: 8,
 };
 
-// Minimum rendered text height in pixels — below this, text is culled
+// Linetype name → canvas dash pattern [dash, gap] in world-unit fraction
+// We'll convert to screen px at render time
+const LINETYPE_DASH: Record<string, number[]> = {
+  HIDDEN:  [6, 4],
+  DASHED:  [6, 4],
+  CENTER:  [12, 3, 2, 3],
+  DASH:    [6, 4],
+  DOT:     [1, 4],
+  PHANTOM: [12, 3, 2, 3, 2, 3],
+};
+
 const MIN_TEXT_PX = 6;
 
 interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
 
 function computeBounds(objects: DrawingObject[]): Bounds | null {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const obj of objects) {
-    const { x, y, w, h } = obj.boundingBox;
+  for (const { boundingBox: { x, y, w, h } } of objects) {
     if (!isFinite(x) || !isFinite(y) || w > 1e8 || h > 1e8) continue;
     minX = Math.min(minX, x); minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + Math.max(w, 1)); maxY = Math.max(maxY, y + Math.max(h, 1));
+    maxX = Math.max(maxX, x + Math.max(w, 1));
+    maxY = Math.max(maxY, y + Math.max(h, 1));
   }
   return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
 }
@@ -77,7 +99,6 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     offsetX: 0, offsetY: 0, scale: 1,
     dragging: false, lastX: 0, lastY: 0,
   });
-
   stateRef.current.objects = objects;
   stateRef.current.selectedObjectId = selectedObjectId;
   stateRef.current.colorMode = colorMode;
@@ -90,17 +111,16 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     if (!ctx) return;
     const W = canvas.width, H = canvas.height;
     const { objects: objs, selectedObjectId: selId, colorMode: mode,
-            bounds, offsetX, offsetY, scale } = stateRef.current;
+            bounds, offsetX: ox, offsetY: oy, scale } = stateRef.current;
 
     ctx.fillStyle = "#18181b";
     ctx.fillRect(0, 0, W, H);
-    if (!bounds || objs.length === 0) return;
+    if (!bounds || !objs.length) return;
 
-    // World → Screen transform (Y-axis flip: DWG y-up, canvas y-down)
-    const sx = (x: number) => (x - bounds.minX) * scale + offsetX;
-    const sy = (y: number) => (bounds.maxY - y) * scale + offsetY;
+    const sx = (x: number) => (x - bounds.minX) * scale + ox;
+    const sy = (y: number) => (bounds.maxY - y) * scale + oy;
 
-    // Render passes: sort by draw order
+    // Sort by draw order (stable)
     const sorted = [...objs].sort((a, b) =>
       (DRAW_ORDER[a.type] ?? 5) - (DRAW_ORDER[b.type] ?? 5)
     );
@@ -109,52 +129,75 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
       const pts = obj.geometry;
       if (!pts?.length) continue;
 
-      // ── Viewport culling: skip objects outside canvas ──────────────────
+      // Viewport culling
       const bb = obj.boundingBox;
-      const scrL = sx(bb.x);
-      const scrR = sx(bb.x + Math.max(bb.w, 1));
-      const scrT = sy(bb.y + Math.max(bb.h, 1));
-      const scrB = sy(bb.y);
-      if (scrR < -20 || scrL > W + 20 || scrB < -20 || scrT > H + 20) continue;
+      const bL = sx(bb.x), bR = sx(bb.x + Math.max(bb.w, 1));
+      const bT = sy(bb.y + Math.max(bb.h, 1)), bB = sy(bb.y);
+      if (bR < -20 || bL > W + 20 || bB < -20 || bT > H + 20) continue;
 
       const selected = !!selId && (obj.id === selId || obj.stableId === selId);
       const props = obj.properties ?? {};
 
       // ── Color ─────────────────────────────────────────────────────────
-      let color: string;
+      let baseColor: string;
       if (selected) {
-        color = "#facc15";
+        baseColor = "#facc15";
       } else if (mode === "cad") {
         const ci = Number(props.colorIndex ?? 256);
-        color = ACI[ci] ?? "#999";
+        baseColor = ACI[ci] ?? "#aaa";
       } else {
-        color = TYPE_COLOR[obj.type] ?? "#52525b";
+        baseColor = TYPE_COLOR[obj.type] ?? "#444";
       }
 
-      // ── Line width ────────────────────────────────────────────────────
-      // lineweight in DWG is 1/100 mm; use log scale for visual weight
-      const lw = Number(props.lineweight ?? -1);
-      ctx.lineWidth = selected ? 2 : (lw > 0 ? Math.max(0.4, lw / 25) : 0.7);
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.setLineDash([]);
+      // ── Linewidth ─────────────────────────────────────────────────────
+      // lineweight 29 = ByLayer (all entities in this file) → use semantic weight
+      ctx.lineWidth = selected ? 2 : (TYPE_LW[obj.type] ?? 0.7);
 
-      // ── Multi-point geometry (line / polyline / hatch / dimension) ────
+      // ── Linetype dashes ───────────────────────────────────────────────
+      const lt = String(props.lineType ?? "").toUpperCase();
+      const dashPattern = LINETYPE_DASH[lt];
+      if (dashPattern && scale > 0.0001) {
+        const px = dashPattern.map(v => v * Math.max(1, scale * 500));
+        ctx.setLineDash(px);
+      } else {
+        ctx.setLineDash([]);
+      }
+
+      ctx.strokeStyle = baseColor;
+      ctx.fillStyle = baseColor;
+
+      // ── Multi-point (polyline / hatch boundary / dimension lines) ─────
       if (pts.length >= 2) {
-        ctx.beginPath();
-        ctx.moveTo(sx(pts[0][0]), sy(pts[0][1]));
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i][0]), sy(pts[i][1]));
-        ctx.stroke();
+        if (obj.type === "hatch") {
+          // Fill hatch boundary with transparent overlay, stroke boundary outline
+          ctx.beginPath();
+          ctx.moveTo(sx(pts[0][0]), sy(pts[0][1]));
+          for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i][0]), sy(pts[i][1]));
+          ctx.closePath();
+          const alpha = selected ? 0.25 : 0.12;
+          ctx.fillStyle = mode === "cad"
+            ? `rgba(180,180,100,${alpha})`
+            : `rgba(100,100,160,${alpha})`;
+          ctx.fill();
+          ctx.setLineDash([]);
+          ctx.lineWidth = 0.4;
+          ctx.strokeStyle = selected ? "#facc15" : "#2a2a40";
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(sx(pts[0][0]), sy(pts[0][1]));
+          for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i][0]), sy(pts[i][1]));
+          ctx.stroke();
+        }
         continue;
       }
 
-      // ── Single-point geometry ─────────────────────────────────────────
-      const cx = sx(pts[0][0]);
-      const cy = sy(pts[0][1]);
+      // ── Single-point ──────────────────────────────────────────────────
+      ctx.setLineDash([]);
+      const cx = sx(pts[0][0]), cy = sy(pts[0][1]);
       const radius = typeof props.radius === "number" ? (props.radius as number) * scale : 0;
 
       if (radius > 0.3) {
-        // Circle / Arc
         const sa = typeof props.startAngle === "number" ? -(props.startAngle as number) * Math.PI / 180 : 0;
         const ea = typeof props.endAngle   === "number" ? -(props.endAngle   as number) * Math.PI / 180 : Math.PI * 2;
         ctx.beginPath();
@@ -164,22 +207,16 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
       }
 
       if (obj.type === "text" || obj.type === "dimension") {
-        // ── Text rendering with LOD culling ───────────────────────────
         const rawText = props.text != null ? String(props.text) : "";
         if (!rawText.trim()) continue;
-
         const th = Number(props.textHeight ?? 0);
         const textPx = th > 0 ? th * scale : 0;
-
-        // LOD: skip text too small to read
         if (textPx > 0 && textPx < MIN_TEXT_PX) continue;
-        if (textPx === 0 && scale < 0.0005) continue; // skip unknown-height text at very small scale
-
+        if (textPx === 0 && scale < 0.0005) continue;
         const fontSize = Math.max(MIN_TEXT_PX, textPx || 9);
         const rot = Number(props.rotation ?? 0);
         ctx.font = `${fontSize}px sans-serif`;
-        ctx.fillStyle = selected ? "#facc15" : (mode === "cad" ? color : "#64748b");
-
+        ctx.fillStyle = selected ? "#facc15" : (mode === "cad" ? baseColor : "#64748b");
         if (rot !== 0) {
           ctx.save();
           ctx.translate(cx, cy);
@@ -192,7 +229,7 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
         continue;
       }
 
-      // ── Dot/crosshair for geometric single-point types ─────────────
+      // Skip insertion-point-only types unless selected
       if (!selected && (obj.type === "block" || obj.type === "hatch" ||
           obj.type === "viewport" || obj.type === "axis")) continue;
 
@@ -203,17 +240,18 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
       ctx.stroke();
     }
 
-    // ── Selection highlight box ───────────────────────────────────────────
+    // ── Selection highlight dashed box ────────────────────────────────────
     if (selId) {
       const sel = objs.find(o => o.id === selId || o.stableId === selId);
       if (sel) {
-        const bb = sel.boundingBox;
-        const pad = Math.max(4, 8 / scale);
+        const { x, y, w, h } = sel.boundingBox;
+        const pad = Math.max(4 / scale, 0);
+        const rx = sx(x - pad), ry = sy(y + h + pad);
+        const rw = (w + pad * 2) * scale, rh = (h + pad * 2) * scale;
         ctx.strokeStyle = "#facc15";
         ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 3]);
-        ctx.strokeRect(sx(bb.x - pad), sy(bb.y + bb.h + pad),
-          (bb.w + pad * 2) * scale, (bb.h + pad * 2) * scale);
+        ctx.setLineDash([5, 3]);
+        ctx.strokeRect(rx, ry, rw, rh);
         ctx.setLineDash([]);
       }
     }
@@ -241,23 +279,22 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
   useEffect(() => { redraw(); }, [colorMode]);         // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const c = canvasRef.current;
+    if (!c) return;
     const ro = new ResizeObserver(() => fitView());
-    ro.observe(canvas);
+    ro.observe(c);
     return () => ro.disconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Mouse ─────────────────────────────────────────────────────────────────
   function onWheel(e: React.WheelEvent) {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
     const rect = canvasRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
     const s = stateRef.current;
-    s.scale *= factor;
-    s.offsetX = mx - (mx - s.offsetX) * factor;
-    s.offsetY = my - (my - s.offsetY) * factor;
+    s.scale *= f;
+    s.offsetX = mx - (mx - s.offsetX) * f;
+    s.offsetY = my - (my - s.offsetY) * f;
     redraw();
   }
 
@@ -298,26 +335,25 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     if (best) onObjectClick(best);
   }
 
-  // Build legend from actual data
   const typeCounts: Record<string, number> = {};
   for (const o of objects) typeCounts[o.type] = (typeCounts[o.type] ?? 0) + 1;
   const topTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 7);
 
   return (
     <div className="relative flex flex-col h-full bg-zinc-900">
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-zinc-800 bg-zinc-950 text-xs text-zinc-400 shrink-0 flex-wrap">
-        <span className="font-mono text-zinc-500">DWG</span>
-        <span className="text-zinc-600">{objects.length.toLocaleString()} objects</span>
-        <div className="flex gap-2 flex-wrap">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-950 text-xs shrink-0 flex-wrap">
+        <span className="font-mono text-zinc-500 shrink-0">DWG</span>
+        <span className="text-zinc-600 shrink-0">{objects.length.toLocaleString()}</span>
+        <div className="flex gap-2 flex-wrap flex-1 min-w-0">
           {topTypes.map(([t, n]) => (
-            <span key={t} className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{ background: TYPE_COLOR[t] ?? "#52525b" }} />
+            <span key={t} className="flex items-center gap-1 shrink-0">
+              <span className="inline-block w-2 h-2 rounded-sm" style={{ background: TYPE_COLOR[t] ?? "#52525b" }} />
               <span className="text-zinc-600">{t}</span>
-              <span className="text-zinc-700 font-mono">({n})</span>
+              <span className="text-zinc-700 font-mono text-[9px]">{n}</span>
             </span>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
           <button
             onClick={() => setColorMode(m => m === "semantic" ? "cad" : "semantic")}
             className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-400"

@@ -614,8 +614,10 @@ export interface DrawingObject {
   pageId?: string;
   layerId?: string;
   type: DrawingObjectType;
+  rawType?: string;        // original DXF/DWG entity type (LINE, LWPOLYLINE, etc.)
   geometry: number[][];
   confidence: number;
+  detectionReason?: string; // human-readable explanation from detector
   layer: string;
   boundingBox: { x: number; y: number; w: number; h: number; page?: number };
   properties: Record<string, string | number>;
