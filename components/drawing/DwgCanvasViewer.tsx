@@ -21,6 +21,7 @@ const TYPE_COLOR: Record<string, string> = {
   opening:   "#7dd3fc",
   stair:     "#c084fc",
   ramp:      "#d946ef",
+  axis:      "#374151",
   dimension: "#52525b",
   leader:    "#52525b",
   text:      "#71717a",
@@ -29,8 +30,11 @@ const TYPE_COLOR: Record<string, string> = {
   polyline:  "#94a3b8",
   hatch:     "#374151",
   viewport:  "#334155",
-  unknown:   "#3f3f46",
+  unknown:   "#4a4a52",
 };
+
+// These types only have insertion-point geometry — skip dot rendering
+const SKIP_DOT_TYPES = new Set(["text", "dimension", "leader", "block", "hatch", "viewport"]);
 
 interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
 
@@ -95,7 +99,18 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
         ctx.moveTo(wx(pts[0][0]), wy(pts[0][1]));
         for (let i = 1; i < pts.length; i++) ctx.lineTo(wx(pts[i][0]), wy(pts[i][1]));
         ctx.stroke();
+
+        // Text label at midpoint when selected
+        if (selected && props.text) {
+          const mid = Math.floor(pts.length / 2);
+          ctx.fillStyle = "#facc15";
+          ctx.font = `${Math.max(9, 11 * scale)}px sans-serif`;
+          ctx.fillText(String(props.text).slice(0, 40), wx(pts[mid][0]) + 4, wy(pts[mid][1]) - 4);
+        }
       } else if (pts.length === 1) {
+        // Skip noisy insertion-point dots for non-geometric types
+        if (SKIP_DOT_TYPES.has(obj.type) && !selected) continue;
+
         const cx = wx(pts[0][0]);
         const cy = wy(pts[0][1]);
         const radius = typeof props.radius === "number" ? props.radius * scale : 0;
@@ -108,7 +123,8 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
           ctx.arc(cx, cy, radius, sa, ea, isArc);
           ctx.stroke();
         } else {
-          const sz = Math.max(1.5, 2 * scale);
+          // Small cross — only for unknown/geometric types or when selected
+          const sz = Math.max(1, 1.5 * scale);
           ctx.beginPath();
           ctx.moveTo(cx - sz, cy); ctx.lineTo(cx + sz, cy);
           ctx.moveTo(cx, cy - sz); ctx.lineTo(cx, cy + sz);
@@ -225,7 +241,7 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
         <span className="font-mono text-zinc-500">DWG</span>
         <span className="text-zinc-600">{objects.length.toLocaleString()} objects</span>
         <div className="flex gap-2 flex-wrap">
-          {(["beam","column","wall","door","window","polyline"] as const).map((t) => (
+          {(["beam","column","wall","door","window","axis","unknown"] as const).map((t) => (
             <span key={t} className="flex items-center gap-1">
               <span className="inline-block w-2 h-2 rounded-sm" style={{ background: TYPE_COLOR[t] }} />
               <span className="text-zinc-600">{t}</span>
