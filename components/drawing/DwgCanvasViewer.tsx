@@ -77,14 +77,24 @@ const MIN_TEXT_PX = 6;
 interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
 
 function computeBounds(objects: DrawingObject[]): Bounds | null {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  // Collect all finite corner coordinates, reject degenerate entities
+  const xs: number[] = [], ys: number[] = [];
   for (const { boundingBox: { x, y, w, h } } of objects) {
-    if (!isFinite(x) || !isFinite(y) || w > 1e8 || h > 1e8) continue;
-    minX = Math.min(minX, x); minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + Math.max(w, 1));
-    maxY = Math.max(maxY, y + Math.max(h, 1));
+    if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h)) continue;
+    if (w > 1e7 || h > 1e7) continue;
+    xs.push(x, x + Math.max(w, 0));
+    ys.push(y, y + Math.max(h, 0));
   }
-  return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+  if (xs.length < 2) return null;
+  xs.sort((a, b) => a - b);
+  ys.sort((a, b) => a - b);
+  // 1%–99% percentile eliminates stray INSERT/DIMENSION outliers
+  // that would otherwise make fit-view zoom out to empty space
+  const lo  = Math.max(0, Math.floor(xs.length * 0.01));
+  const hi  = Math.min(xs.length - 1, Math.ceil(xs.length * 0.99) - 1);
+  const loY = Math.max(0, Math.floor(ys.length * 0.01));
+  const hiY = Math.min(ys.length - 1, Math.ceil(ys.length * 0.99) - 1);
+  return { minX: xs[lo], maxX: xs[hi], minY: ys[loY], maxY: ys[hiY] };
 }
 
 type ColorMode = "semantic" | "cad";
