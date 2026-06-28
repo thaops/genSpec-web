@@ -58,6 +58,7 @@ interface Props {
   activeDrawingId?: string;
   selectedDrawingObject?: DrawingObject;
   drawingViewport?: DrawingViewportInfo;
+  width?: number;
 }
 
 export function AgentConsole({
@@ -72,6 +73,7 @@ export function AgentConsole({
   activeDrawingId,
   selectedDrawingObject,
   drawingViewport,
+  width,
 }: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<AgentTab>("chat");
@@ -492,7 +494,10 @@ export function AgentConsole({
   };
 
   return (
-    <aside className="flex w-full max-w-[440px] shrink-0 flex-col border-l border-zinc-800 bg-zinc-950">
+    <aside
+      className="flex shrink-0 flex-col border-l border-zinc-800 bg-zinc-950"
+      style={{ width: width ?? 380, minWidth: 280, maxWidth: 640 }}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-500/10 text-accent-300">

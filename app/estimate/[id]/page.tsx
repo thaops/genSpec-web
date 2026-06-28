@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { Action, Drawing, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
@@ -56,11 +56,44 @@ export default function EstimateEditorPage() {
   const [selectedDrawingObject, setSelectedDrawingObject] = useState<DrawingObject | undefined>(undefined);
   const [drawingViewport, setDrawingViewport] = useState<DrawingViewportInfo | undefined>(undefined);
   const [splitMode, setSplitMode] = useState(false);
+  const [agentWidth, setAgentWidth] = useState(380);
+  const agentDrag = useRef({ active: false, startX: 0, startW: 0 });
   const copilotRef = useRef<AgentHandle>(null);
   const autoSentRef = useRef(false);
 
   useEffect(() => {
     setCollapsed(readCopilotCollapsed());
+    const stored = localStorage.getItem("genspec-agent-width");
+    if (stored) setAgentWidth(parseInt(stored, 10));
+  }, []);
+
+  const onAgentResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    agentDrag.current = { active: true, startX: e.clientX, startW: agentWidth };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [agentWidth]);
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!agentDrag.current.active) return;
+      const dx = agentDrag.current.startX - e.clientX;
+      const w = Math.max(280, Math.min(640, agentDrag.current.startW + dx));
+      setAgentWidth(w);
+    }
+    function onUp() {
+      if (!agentDrag.current.active) return;
+      agentDrag.current.active = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem("genspec-agent-width", String(agentDrag.current.startW));
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
   }, []);
 
   useEffect(() => {
@@ -419,6 +452,16 @@ export default function EstimateEditorPage() {
           )}
         </div>
 
+        {/* Resize handle for AI sidebar */}
+        {!collapsed && (
+          <div
+            onMouseDown={onAgentResizeStart}
+            className="w-1 shrink-0 cursor-col-resize bg-zinc-800 hover:bg-blue-500 transition-colors group relative"
+          >
+            <div className="absolute inset-y-0 -left-1 -right-1" />
+          </div>
+        )}
+
         {/* AI Sidebar */}
         <AgentConsole
           estimate={estimate}
@@ -432,6 +475,7 @@ export default function EstimateEditorPage() {
           activeDrawingId={activeDrawingId}
           selectedDrawingObject={selectedDrawingObject}
           drawingViewport={drawingViewport}
+          width={agentWidth}
         />
       </div>
     </div>

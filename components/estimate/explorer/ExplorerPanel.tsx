@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Drawing, Estimate, Sheet } from "@/lib/types";
 import {
   FileText, Ruler, ClipboardList, BarChart3, Brain, History,
-  Pencil, Trash2, Image,
+  Pencil, Trash2, Image, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,8 @@ const NAV_ITEMS: { id: WorkspaceView; label: string; Icon: NavIcon }[] = [
   { id: "history",   label: "History",         Icon: History       },
 ];
 
+const EXPANDABLE_SECTIONS = new Set<WorkspaceView>(["workbook", "drawing"]);
+
 export function ExplorerPanel({
   estimate,
   viewMode,
@@ -52,7 +54,26 @@ export function ExplorerPanel({
 }: ExplorerPanelProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
+  const [openSections, setOpenSections] = useState<Set<WorkspaceView>>(
+    () => new Set<WorkspaceView>(["workbook", "drawing"])
+  );
   const sheetsList = estimate.sheets ?? [];
+
+  // Auto-open section when navigating to it
+  useEffect(() => {
+    if (EXPANDABLE_SECTIONS.has(viewMode)) {
+      setOpenSections((prev) => new Set([...prev, viewMode]));
+    }
+  }, [viewMode]);
+
+  function toggleSection(id: WorkspaceView, e: React.MouseEvent) {
+    e.stopPropagation();
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   function commitRename(id: string) {
     if (renameText.trim()) onRenameSheet(id, renameText.trim());
@@ -72,79 +93,88 @@ export function ExplorerPanel({
 
       {/* Nav sections */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {NAV_ITEMS.map((item) => (
-          <div key={item.id}>
-            <button
-              onClick={() => onViewModeChange(item.id)}
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors",
-                viewMode === item.id
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-300",
-              )}
-            >
-              <item.Icon className="h-3.5 w-3.5 shrink-0" />
-              <span>{item.label}</span>
-              {item.id === "drawing" && drawings.length > 0 && (
-                <span className="ml-auto font-mono text-[10px] text-zinc-600">
-                  {drawings.length}
-                </span>
-              )}
-              {item.id === "workbook" && sheetsList.length > 0 && (
-                <span className="ml-auto font-mono text-[10px] text-zinc-600">
-                  {sheetsList.length}
-                </span>
-              )}
-            </button>
+        {NAV_ITEMS.map((item) => {
+          const hasChildren = EXPANDABLE_SECTIONS.has(item.id);
+          const isOpen = openSections.has(item.id);
+          const isActive = viewMode === item.id;
+          const count = item.id === "drawing" ? drawings.length
+            : item.id === "workbook" ? sheetsList.length : 0;
 
-            {/* Workbook sub-items */}
-            {item.id === "workbook" && viewMode === "workbook" && (
-              <div className="space-y-0.5 px-2 pb-2">
-                {sheetsList.map((sheet) => (
-                  <SheetItem
-                    key={sheet.id}
-                    sheet={sheet}
-                    active={activeSheetId === sheet.id}
-                    renaming={renamingId === sheet.id}
-                    renameText={renameText}
-                    onSelect={() => onSheetSelect(sheet.id)}
-                    onRenameStart={() => { setRenamingId(sheet.id); setRenameText(sheet.name); }}
-                    onRenameChange={setRenameText}
-                    onRenameCommit={() => commitRename(sheet.id)}
-                    onRenameCancel={() => setRenamingId(null)}
-                    onDelete={() => onDeleteSheet(sheet.id)}
-                  />
-                ))}
-                <button
-                  onClick={onAddSheet}
-                  className="w-full rounded-md px-2.5 py-1 text-left text-xs text-zinc-600 transition-colors hover:bg-zinc-800/30 hover:text-zinc-400"
-                >
-                  + New Sheet
-                </button>
-              </div>
-            )}
-
-            {/* Drawings sub-items */}
-            {item.id === "drawing" && viewMode === "drawing" && (
-              <div className="space-y-0.5 px-2 pb-2">
-                {drawings.length === 0 && (
-                  <div className="px-2 py-2 text-xs text-zinc-600">
-                    Chưa có bản vẽ
-                  </div>
+          return (
+            <div key={item.id}>
+              <div
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors cursor-pointer select-none",
+                  isActive
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-300",
                 )}
-                {drawings.map((drawing) => (
-                  <DrawingItem
-                    key={drawing.id}
-                    drawing={drawing}
-                    active={activeDrawingId === drawing.id}
-                    onSelect={() => onDrawingSelect(drawing.id)}
-                    onDelete={() => onDeleteDrawing?.(drawing.id)}
-                  />
-                ))}
+                onClick={() => onViewModeChange(item.id)}
+              >
+                <item.Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1">{item.label}</span>
+                {count > 0 && (
+                  <span className="font-mono text-[10px] text-zinc-600">{count}</span>
+                )}
+                {hasChildren && (
+                  <button
+                    onClick={(e) => toggleSection(item.id, e)}
+                    className="ml-1 rounded p-0.5 text-zinc-600 hover:text-zinc-300 transition-colors"
+                  >
+                    {isOpen
+                      ? <ChevronDown className="h-3 w-3" />
+                      : <ChevronRight className="h-3 w-3" />}
+                  </button>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+
+              {/* Workbook sub-items */}
+              {item.id === "workbook" && isOpen && (
+                <div className="space-y-0.5 px-2 pb-2">
+                  {sheetsList.map((sheet) => (
+                    <SheetItem
+                      key={sheet.id}
+                      sheet={sheet}
+                      active={activeSheetId === sheet.id}
+                      renaming={renamingId === sheet.id}
+                      renameText={renameText}
+                      onSelect={() => { onSheetSelect(sheet.id); onViewModeChange("workbook"); }}
+                      onRenameStart={() => { setRenamingId(sheet.id); setRenameText(sheet.name); }}
+                      onRenameChange={setRenameText}
+                      onRenameCommit={() => commitRename(sheet.id)}
+                      onRenameCancel={() => setRenamingId(null)}
+                      onDelete={() => onDeleteSheet(sheet.id)}
+                    />
+                  ))}
+                  <button
+                    onClick={onAddSheet}
+                    className="w-full rounded-md px-2.5 py-1 text-left text-xs text-zinc-600 transition-colors hover:bg-zinc-800/30 hover:text-zinc-400"
+                  >
+                    + New Sheet
+                  </button>
+                </div>
+              )}
+
+              {/* Drawings sub-items */}
+              {item.id === "drawing" && isOpen && (
+                <div className="space-y-0.5 px-2 pb-2">
+                  {drawings.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-zinc-600">Chưa có bản vẽ</div>
+                  )}
+                  {drawings.map((drawing) => (
+                    <DrawingItem
+                      key={drawing.id}
+                      drawing={drawing}
+                      active={activeDrawingId === drawing.id}
+                      onSelect={() => { onDrawingSelect(drawing.id); onViewModeChange("drawing"); }}
+                      onDelete={() => onDeleteDrawing?.(drawing.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
