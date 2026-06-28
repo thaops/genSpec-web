@@ -83,7 +83,7 @@ export function DwgCanvasViewer({ objects, selectedObjectId, onObjectClick }: Pr
     const wy = (y: number) => (bounds.maxY - y) * scale + offsetY;
 
     for (const obj of objs) {
-      const selected = obj.id === selId || obj.stableId === selId;
+      const selected = !!selId && (obj.id === selId || obj.stableId === selId);
       ctx.strokeStyle = selected ? "#facc15" : (TYPE_COLOR[obj.type] ?? "#52525b");
       ctx.lineWidth = selected ? 2 : 0.8;
 
