@@ -42,6 +42,7 @@ interface ProposalItem {
 }
 
 const EDIT_PERM_KEY = (id: string) => `genspec_edit_perm_${id}`;
+const TYPEWRITER_MS = 10; // ~100 chars/sec
 const COLLAPSED_KEY = "genspec_copilot_collapsed";
 
 interface Props {
@@ -97,6 +98,7 @@ export function AgentConsole({
 
   const abortRef = useRef<AbortController | null>(null);
   const pendingFinalizeRef = useRef<(() => void) | null>(null);
+  const typewriterRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasTokensRef = useRef(false);
   const idRef = useRef(0);
   const estimateRef = useRef(estimate);
@@ -175,8 +177,11 @@ export function AgentConsole({
     });
   }, [thread, liveSteps, streaming]);
 
-  // Cleanup abort on unmount
-  useEffect(() => () => { abortRef.current?.abort(); }, []);
+  // Cleanup abort and typewriter on unmount
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    if (typewriterRef.current) clearTimeout(typewriterRef.current);
+  }, []);
 
   // Flush pending save before tab closes or user navigates away
   useEffect(() => {
@@ -192,13 +197,13 @@ export function AgentConsole({
     return () => window.removeEventListener("beforeunload", flush);
   }, [estimate.id, thread]);
 
-  // Finalize as soon as streaming ends — no animation to wait for
+  // Finalize when streaming ends; guard against clearing while typewriter is running
   useEffect(() => {
     if (streaming) return;
     if (pendingFinalizeRef.current) {
       pendingFinalizeRef.current();
       pendingFinalizeRef.current = null;
-    } else if (liveText || liveSteps.length) {
+    } else if ((liveText || liveSteps.length) && !typewriterRef.current) {
       setLiveText("");
       setLiveSteps([]);
     }
@@ -215,6 +220,21 @@ export function AgentConsole({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estimate.id]);
 
+  function startTypewriter(text: string, onDone: () => void) {
+    let i = 0;
+    const tick = () => {
+      i++;
+      setLiveText(text.slice(0, i));
+      if (i < text.length) {
+        typewriterRef.current = setTimeout(tick, TYPEWRITER_MS);
+      } else {
+        typewriterRef.current = null;
+        onDone();
+      }
+    };
+    typewriterRef.current = setTimeout(tick, TYPEWRITER_MS);
+  }
+
   function toggleEditPermission() {
     const next = !editPermission;
     setEditPermission(next);
@@ -225,6 +245,12 @@ export function AgentConsole({
     const message = (text ?? "").trim();
     const sentFiles = attached ?? [];
     if ((!message && sentFiles.length === 0) || streaming) return;
+
+    // Cancel any running typewriter animation
+    if (typewriterRef.current) {
+      clearTimeout(typewriterRef.current);
+      typewriterRef.current = null;
+    }
 
     setTab("chat");
 
@@ -281,7 +307,7 @@ export function AgentConsole({
             }
 
             if (p.actions.length === 0) {
-              // Read / review response — keep animation alive, finalize after typed catches up
+              // Read / review response
               const assistantMsg: ConversationMessage = {
                 id: msgId,
                 kind: "assistant",
@@ -291,15 +317,27 @@ export function AgentConsole({
               };
               const nextFinalThread = [...nextThread, assistantMsg];
               finalThread = nextFinalThread;
-              // Seed liveText only when no tokens arrived (proxy-buffered response).
-              // Use a ref — closure captures liveText="" from send() start, making !liveText always true.
-              if (!hasTokensRef.current && p.message) setLiveText(p.message);
-              pendingFinalizeRef.current = () => {
-                setThread(nextFinalThread);
-                setLiveText("");
-                setLiveSteps([]);
-                saveConversation(nextFinalThread);
-              };
+
+              if (!hasTokensRef.current && p.message) {
+                // Backend buffered the whole response (no token events).
+                // Schedule typewriter to run from inside finalize (after stream ends).
+                pendingFinalizeRef.current = () => {
+                  startTypewriter(p.message, () => {
+                    setThread(nextFinalThread);
+                    setLiveText("");
+                    setLiveSteps([]);
+                    saveConversation(nextFinalThread);
+                  });
+                };
+              } else {
+                // Real streaming tokens arrived — normal finalize
+                pendingFinalizeRef.current = () => {
+                  setThread(nextFinalThread);
+                  setLiveText("");
+                  setLiveSteps([]);
+                  saveConversation(nextFinalThread);
+                };
+              }
             } else if (editPermission) {
               // Edit mode + actions → auto-apply, no confirmation
               setLiveText("");
@@ -382,7 +420,7 @@ export function AgentConsole({
       abortRef.current = null;
       // Always persist — animation may not complete before user navigates away
       saveConversation(finalThread);
-      if (!pendingFinalizeRef.current) {
+      if (!pendingFinalizeRef.current && !typewriterRef.current) {
         setLiveText("");
         setLiveSteps([]);
       }

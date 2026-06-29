@@ -64,6 +64,7 @@ export default function EstimateEditorPage() {
   const [drawingViewport, setDrawingViewport] = useState<DrawingViewportInfo | undefined>(undefined);
   const [splitMode, setSplitMode] = useState(false);
   const [agentWidth, setAgentWidth] = useState(380);
+  const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
   const agentDrag = useRef({ active: false, startX: 0, startW: 0 });
   const copilotRef = useRef<AgentHandle>(null);
   const autoSentRef = useRef(false);
@@ -175,6 +176,8 @@ export default function EstimateEditorPage() {
     if (next.sheets && next.sheets.length > 0 && !activeSheetId) {
       setActiveSheetId(next.sheets[0].id);
     }
+    // Reinit WorkbookEditor so Univer reflects AI-edited cell data
+    setWorkbookReinitKey((k) => k + 1);
   };
 
   async function apply(actions: Action[]) {
@@ -400,6 +403,7 @@ export default function EstimateEditorPage() {
               onSelectionChange={handleSelectionChange}
               onDataChange={handleDataChange}
               findings={findings}
+              reinitKey={workbookReinitKey}
             />
           </div>
         </>

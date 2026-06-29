@@ -17,6 +17,7 @@ interface Props {
   }) => void;
   onDataChange: (sheets: Sheet[]) => void;
   findings?: any[];
+  reinitKey?: number;
 }
 
 // Both modes keep 50=lightest → 900=darkest (Univer's expected direction).
@@ -46,6 +47,7 @@ export default function WorkbookEditor({
   onSelectionChange,
   onDataChange,
   findings = [],
+  reinitKey = 0,
 }: Props) {
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +57,8 @@ export default function WorkbookEditor({
   const themeRef = useRef(theme);
   // Deduplicate: only call onDataChange when cell data actually changes
   const lastCellHashRef = useRef<string>("");
+  // Track sheets shown in Univer for diff animation after AI reinit
+  const lastSheetsRef = useRef<Sheet[]>([]);
   const dataDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // isDark can be explicitly passed (effect ordering fix: child effects run BEFORE
@@ -168,6 +172,40 @@ export default function WorkbookEditor({
         if (target) wb.setActiveSheet(target);
       }
 
+      // Highlight cells that changed vs previous Univer snapshot (AI edit animation)
+      const prevSheets = lastSheetsRef.current;
+      if (prevSheets.length > 0) {
+        const newSheets = workbookData.sheets ?? [];
+        const changedCells: Array<{ sheetId: string; row: number; col: number }> = [];
+        for (const newSheet of newSheets) {
+          const oldSheet = prevSheets.find((s) => s.id === newSheet.id);
+          if (!oldSheet) continue;
+          const oldCells = (oldSheet.data?.cellData ?? {}) as Record<string, Record<string, any>>;
+          const newCells = (newSheet.data?.cellData ?? {}) as Record<string, Record<string, any>>;
+          for (const [rowStr, cols] of Object.entries(newCells)) {
+            const oldRow = oldCells[rowStr] ?? {};
+            for (const [colStr, cell] of Object.entries(cols)) {
+              if ((cell as any)?.v !== oldRow[colStr]?.v) {
+                changedCells.push({ sheetId: newSheet.id, row: Number(rowStr), col: Number(colStr) });
+              }
+            }
+          }
+        }
+        if (changedCells.length > 0) {
+          for (const { sheetId, row, col } of changedCells) {
+            const univSheet = wb.getSheetBySheetId?.(sheetId);
+            if (!univSheet) continue;
+            try {
+              univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor("#1e3a8a");
+              setTimeout(() => {
+                try { univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor(""); } catch (_) {}
+              }, 1500);
+            } catch (_) {}
+          }
+        }
+      }
+      lastSheetsRef.current = workbookData.sheets ?? [];
+
       wb.onCommandExecuted(() => {
         const cur = wb.getActiveSheet();
         if (cur) onActiveSheetChange(cur.getSheetId());
@@ -188,6 +226,7 @@ export default function WorkbookEditor({
         const hash = JSON.stringify(updated.map((s) => s.data?.cellData ?? {}));
         if (hash === lastCellHashRef.current) return;
         lastCellHashRef.current = hash;
+        lastSheetsRef.current = updated; // track what's shown in Univer
 
         // Debounce rapid keystrokes — flush after 700ms of inactivity
         if (dataDebounceRef.current) clearTimeout(dataDebounceRef.current);
@@ -221,7 +260,7 @@ export default function WorkbookEditor({
       univerRef.current = null;
       univerAPIRef.current = null;
     };
-  }, [workbookData.id]);
+  }, [workbookData.id, reinitKey]);
 
   useEffect(() => {
     const wb = univerAPIRef.current?.getActiveWorkbook?.();
