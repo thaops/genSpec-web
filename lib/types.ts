@@ -470,6 +470,8 @@ export type Action =
 export interface CopilotSource {
   title?: string;
   uri?: string;
+  /** Nguồn giá: "government" | "catalog" | "web" | "ai_estimate"... — thiếu = không rõ */
+  type?: string;
 }
 
 // ---------- Copilot SSE stream events ----------
@@ -813,6 +815,8 @@ export interface DrawingScene {
 export interface DrawingCalibration {
   unitsPerDrawingUnit: number;
   unitLabel: string;
+  /** true = tự nhận từ đơn vị bản vẽ ($INSUNITS) — không persist, user hiệu chỉnh sẽ ghi đè */
+  auto?: boolean;
 }
 
 // ---------- Assets ----------

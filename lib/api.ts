@@ -530,18 +530,35 @@ export function importNorms(
   return request(`/catalog/import-norms${qs}`, { method: "POST", form });
 }
 
-/** Import công bố giá tỉnh. meta.effectiveDate: ISO date string. */
+/** BE trả về khi đã tồn tại bộ giá trùng (province, effectiveDate) và chưa overwrite */
+export interface CatalogImportConflict {
+  conflict: true;
+  existing: {
+    sourceDoc?: string;
+    importedAt?: string;
+    itemCount?: number;
+  };
+}
+
+/** Import công bố giá tỉnh. meta.effectiveDate: ISO date string. overwrite=true → ghi đè bộ giá trùng. */
 export function importPrices(
   file: File,
   meta: { province: string; effectiveDate: string; sourceDoc?: string },
-  dryRun?: boolean
-): Promise<CatalogImportSummary | CatalogImportPreview<CatalogPricePreviewItem>> {
+  dryRun?: boolean,
+  overwrite?: boolean
+): Promise<
+  CatalogImportSummary | CatalogImportPreview<CatalogPricePreviewItem> | CatalogImportConflict
+> {
   const form = new FormData();
   form.append("file", file);
   form.append("province", meta.province);
   form.append("effectiveDate", meta.effectiveDate);
   if (meta.sourceDoc) form.append("sourceDoc", meta.sourceDoc);
-  const qs = dryRun ? "?dryRun=true" : "";
+  const params = new URLSearchParams();
+  if (dryRun) params.set("dryRun", "true");
+  if (overwrite) params.set("overwrite", "true");
+  const qsStr = params.toString();
+  const qs = qsStr ? `?${qsStr}` : "";
   return request(`/catalog/import-prices${qs}`, { method: "POST", form });
 }
 

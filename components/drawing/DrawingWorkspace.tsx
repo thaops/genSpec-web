@@ -19,6 +19,13 @@ import { buildFullTakeoffAction } from "@/lib/actions/AgentActions";
 import { summarizeObjects } from "@/lib/drawing/objectMeasure";
 import { AlertTriangle, Ruler, Sparkles, Zap } from "lucide-react";
 
+// Quy đổi đơn vị bản vẽ ($INSUNITS) → mét
+const INSUNITS_TO_METERS: Record<string, number> = {
+  mm: 0.001,
+  m: 1,
+  inch: 0.0254,
+};
+
 const PARSE_STATUS_LABELS: Record<string, string> = {
   queued:     "Đang xếp hàng xử lý...",
   converting: "Đang chuyển đổi DWG → DXF...",
@@ -200,6 +207,18 @@ export function DrawingWorkspace({
       setCalibration(null);
     }
   }, [activeDrawingId]);
+
+  // $INSUNITS auto-scale: khi chưa có calibration và scene khai báo đơn vị,
+  // tự tạo calibration mặc định (auto — KHÔNG persist localStorage).
+  // Calibration user làm tay (handleCalibrated) luôn ghi đè và persist như cũ.
+  useEffect(() => {
+    if (!scene || scene.units === "unknown") return;
+    const factor = INSUNITS_TO_METERS[scene.units];
+    if (factor == null) return;
+    setCalibration((prev) =>
+      prev ?? { unitsPerDrawingUnit: factor, unitLabel: "m", auto: true }
+    );
+  }, [scene]);
 
   // Per-drawing review states persisted in localStorage
   useEffect(() => {

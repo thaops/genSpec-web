@@ -10,6 +10,7 @@ import {
   type CatalogImportPreview,
   type CatalogNormPreviewItem,
   type CatalogPricePreviewItem,
+  type CatalogImportConflict,
 } from "@/lib/api";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -317,6 +318,7 @@ function PricesCard() {
   const [preview, setPreview] =
     useState<CatalogImportPreview<CatalogPricePreviewItem> | null>(null);
   const [summary, setSummary] = useState<CatalogImportSummary | null>(null);
+  const [conflict, setConflict] = useState<CatalogImportConflict | null>(null);
   const [busy, setBusy] = useState<"preview" | "import" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -324,6 +326,7 @@ function PricesCard() {
     setFile(f);
     setPreview(null);
     setSummary(null);
+    setConflict(null);
     setError(null);
   };
 
@@ -342,6 +345,7 @@ function PricesCard() {
     setBusy("preview");
     setError(null);
     setSummary(null);
+    setConflict(null);
     try {
       const res = (await importPrices(file, meta(), true)) as
         CatalogImportPreview<CatalogPricePreviewItem>;
@@ -355,18 +359,32 @@ function PricesCard() {
     }
   };
 
-  const doImport = async () => {
-    if (!canImport || !file) return;
+  const doImport = async (overwrite = false) => {
+    if (!file || busy) return;
+    if (!overwrite && !canImport) return;
     setBusy("import");
     setError(null);
+    if (overwrite) setConflict(null);
     try {
-      const res = (await importPrices(file, meta())) as CatalogImportSummary;
+      const raw = await importPrices(file, meta(), false, overwrite);
+      if ("conflict" in raw && raw.conflict) {
+        setConflict(raw);
+        return;
+      }
+      const res = raw as CatalogImportSummary;
+      setConflict(null);
       setSummary(res);
       toast.success(
         "Import đơn giá thành công",
         `${province}: ${res.inserted} thêm mới, ${res.updated} cập nhật, ${res.skipped} bỏ qua.`
       );
     } catch (e) {
+      // Backend signals an existing price set as HTTP 409 with the conflict body
+      const body = (e as ApiError)?.body as unknown as CatalogImportConflict | undefined;
+      if ((e as ApiError)?.statusCode === 409 && body?.conflict) {
+        setConflict(body);
+        return;
+      }
       setError(errMsg(e));
       toast.error("Import đơn giá thất bại", errMsg(e));
     } finally {
@@ -441,7 +459,7 @@ function PricesCard() {
             disabled={!canImport}
             loading={busy === "import"}
             leftIcon={<Upload className="h-3.5 w-3.5" />}
-            onClick={doImport}
+            onClick={() => doImport()}
           >
             Import
           </Button>
@@ -451,6 +469,40 @@ function PricesCard() {
             </span>
           )}
         </div>
+
+        {conflict && (
+          <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5">
+            <p className="text-xs text-amber-300">
+              Đã có bộ giá <span className="font-semibold">{province.trim()}</span> hiệu lực{" "}
+              <span className="font-semibold">{effectiveDate}</span>
+              {" ("}nguồn {conflict.existing.sourceDoc || "không rõ"},{" "}
+              {conflict.existing.itemCount ?? "?"} mục, import{" "}
+              {conflict.existing.importedAt
+                ? new Date(conflict.existing.importedAt).toLocaleDateString("vi-VN")
+                : "không rõ"}
+              {"). "}
+              Ghi đè?
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                disabled={!!busy}
+                loading={busy === "import"}
+                onClick={() => doImport(true)}
+              >
+                Ghi đè
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!!busy}
+                onClick={() => setConflict(null)}
+              >
+                Hủy
+              </Button>
+            </div>
+          </div>
+        )}
 
         {!metaOk && file && (
           <p className="text-xs text-amber-400">

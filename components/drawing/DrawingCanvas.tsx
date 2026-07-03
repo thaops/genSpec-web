@@ -194,10 +194,13 @@ export function DrawingCanvas({
   // Calibration point capture (world coords)
   const [calPts, setCalPts] = useState<{ x: number; y: number }[]>([]);
   const [calSkipped, setCalSkipped] = useState(false);
+  // Auto-scale ($INSUNITS): user bấm "Hiệu chỉnh" → mở flow 2 điểm dù đã có calibration auto
+  const [manualPick, setManualPick] = useState(false);
+  const [autoBarDismissed, setAutoBarDismissed] = useState(false);
 
   const index = useMemo(() => buildSceneIndex(scene), [scene]);
 
-  const calibrating = calibration == null && !calSkipped;
+  const calibrating = (calibration == null && !calSkipped) || manualPick;
 
   // Mutable interaction state (never triggers React renders)
   const st = useRef({
@@ -509,16 +512,25 @@ export function DrawingCanvas({
       label = `${formatNum(area * factor * factor)} ${unit}²`;
     }
     if (warn) label += "  (chưa hiệu chỉnh)";
+    // Tỉ lệ tự nhận ($INSUNITS): không cảnh báo amber — chỉ ghi chú xám nhỏ
+    const suffix = !warn && cal?.auto ? "  (tự nhận)" : "";
 
     const anchor = live[live.length - 1];
     const lx = w2sX(anchor.x) + 10;
     const ly = w2sY(anchor.y) - 10;
     ctx.font = "11px sans-serif";
     const tw = ctx.measureText(label).width;
+    const sw = suffix ? ctx.measureText(suffix).width : 0;
     ctx.fillStyle = dark ? "rgba(9,9,11,0.85)" : "rgba(255,255,255,0.9)";
-    ctx.fillRect(lx - 4, ly - 12, tw + 8, 16);
+    ctx.fillRect(lx - 4, ly - 12, tw + sw + 8, 16);
     ctx.fillStyle = warn ? "#f59e0b" : "#22c55e";
     ctx.fillText(label, lx, ly);
+    if (suffix) {
+      ctx.font = "10px sans-serif";
+      ctx.fillStyle = "#71717a"; // zinc-500
+      ctx.fillText(suffix, lx + tw, ly);
+      ctx.font = "11px sans-serif";
+    }
   }
 
   function drawMinimap(viewW: number, viewH: number, dark: boolean) {
@@ -731,6 +743,8 @@ export function DrawingCanvas({
     fitView();
     setCalPts([]);
     setCalSkipped(false);
+    setManualPick(false);
+    setAutoBarDismissed(false);
     setHiddenLayers(new Set());
   }, [scene, fitView]);
 
@@ -797,6 +811,7 @@ export function DrawingCanvas({
     const d = Math.hypot(calPts[1].x - calPts[0].x, calPts[1].y - calPts[0].y);
     if (d <= 0) return;
     setCalPts([]);
+    setManualPick(false);
     onCalibrated?.({ unitsPerDrawingUnit: realMeters / d, unitLabel: "m" });
   }
 
@@ -828,9 +843,32 @@ export function DrawingCanvas({
           pointCount={calPts.length}
           drawingDistance={drawingDist}
           onConfirm={handleCalConfirm}
-          onSkip={() => { setCalSkipped(true); setCalPts([]); }}
+          onSkip={() => { setCalSkipped(true); setManualPick(false); setCalPts([]); }}
           onReset={() => setCalPts([])}
         />
+      )}
+
+      {/* Auto-scale banner ($INSUNITS) — hiện khi tỉ lệ tự nhận từ đơn vị bản vẽ */}
+      {!calibrating && calibration?.auto && !autoBarDismissed && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-900/95 border border-zinc-700 shadow-xl text-xs text-zinc-300">
+          <span>
+            Tỉ lệ tự nhận từ bản vẽ ({scene.units}) — đo thử một đoạn để xác nhận, hoặc hiệu
+            chỉnh 2 điểm
+          </span>
+          <button
+            onClick={() => { setManualPick(true); setCalPts([]); }}
+            className="px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-500"
+          >
+            Hiệu chỉnh
+          </button>
+          <button
+            onClick={() => setAutoBarDismissed(true)}
+            className="text-zinc-500 hover:text-zinc-300"
+            aria-label="Đóng"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
       )}
 
       {/* Truncated scene warning */}

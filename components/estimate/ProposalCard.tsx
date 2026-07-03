@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CopilotProposal, ProposalCount } from "@/lib/types";
+import type { CopilotProposal, CopilotSource, ProposalCount } from "@/lib/types";
 import { cn, formatVndShort } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
 import type { TKey } from "@/lib/i18n/dictionaries";
@@ -26,6 +26,32 @@ const KIND_LABEL: Record<string, TKey> = {
 };
 
 export type ProposalState = "pending" | "applying" | "applied" | "discarded";
+
+// Phân loại độ tin cậy nguồn giá theo source.type (optional — BE có thể chưa gửi)
+type SourceKind = "official" | "web" | "ai";
+
+function classifySource(s: CopilotSource): SourceKind {
+  const t = (s.type ?? "").toLowerCase();
+  if (t === "government" || t === "catalog") return "official";
+  if (t === "ai_estimate") return "ai";
+  if (s.uri && /^https?:\/\//i.test(s.uri)) return "web";
+  return "ai"; // không có uri lẫn type → coi như AI ước lượng
+}
+
+const SOURCE_BADGE: Record<SourceKind, { label: string; cls: string }> = {
+  official: {
+    label: "Nguồn chính thống",
+    cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+  },
+  web: {
+    label: "Web",
+    cls: "border-sky-500/30 bg-sky-500/10 text-sky-300",
+  },
+  ai: {
+    label: "AI ước lượng",
+    cls: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+  },
+};
 
 interface Props {
   proposal: CopilotProposal;
@@ -212,24 +238,42 @@ export function ProposalCard({
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
               {t("copilot.sources")}
             </p>
+            {sources.every((s) => classifySource(s) === "ai") && (
+              <p className="mb-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
+                ⚠ Toàn bộ giá là AI ước lượng — cần kiểm chứng trước khi dùng
+              </p>
+            )}
             <ul className="space-y-0.5">
-              {sources.map((s, i) => (
-                <li key={i} className="truncate text-[11px]">
-                  {s.uri ? (
-                    <a
-                      href={s.uri}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent-300 hover:underline"
-                      title={s.uri}
+              {sources.map((s, i) => {
+                const badge = SOURCE_BADGE[classifySource(s)];
+                return (
+                  <li key={i} className="flex items-center gap-1.5 text-[11px]">
+                    <span className="min-w-0 truncate">
+                      {s.uri ? (
+                        <a
+                          href={s.uri}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-accent-300 hover:underline"
+                          title={s.uri}
+                        >
+                          {s.title || s.uri}
+                        </a>
+                      ) : (
+                        <span className="text-zinc-400">{s.title}</span>
+                      )}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full border px-1.5 py-px text-[9px] font-medium",
+                        badge.cls
+                      )}
                     >
-                      {s.title || s.uri}
-                    </a>
-                  ) : (
-                    <span className="text-zinc-400">{s.title}</span>
-                  )}
-                </li>
-              ))}
+                      {badge.label}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

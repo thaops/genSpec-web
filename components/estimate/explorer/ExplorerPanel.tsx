@@ -140,7 +140,11 @@ export function ExplorerPanel({
                       onRenameChange={setRenameText}
                       onRenameCommit={() => commitRename(sheet.id)}
                       onRenameCancel={() => setRenamingId(null)}
-                      onDelete={() => onDeleteSheet(sheet.id)}
+                      onDelete={() => {
+                        if (window.confirm(`Xóa sheet '${sheet.name}'? Dữ liệu trong sheet sẽ mất.`)) {
+                          onDeleteSheet(sheet.id);
+                        }
+                      }}
                     />
                   ))}
                   <button
@@ -164,7 +168,15 @@ export function ExplorerPanel({
                       drawing={drawing}
                       active={activeDrawingId === drawing.id}
                       onSelect={() => { onDrawingSelect(drawing.id); onViewModeChange("drawing"); }}
-                      onDelete={() => onDeleteDrawing?.(drawing.id)}
+                      onDelete={
+                        onDeleteDrawing
+                          ? () => {
+                              if (window.confirm(`Xóa bản vẽ '${drawing.name}'? Objects và scene sẽ mất.`)) {
+                                onDeleteDrawing(drawing.id);
+                              }
+                            }
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
