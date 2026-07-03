@@ -556,6 +556,8 @@ export interface ConversationMessage {
   patchId?: string;
   /** True after the user rolled back this message's patch */
   undone?: boolean;
+  /** Gemini thought summary streamed during this reply — shown collapsed in the bubble */
+  thinking?: string;
   timestamp: string;
 }
 

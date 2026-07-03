@@ -179,6 +179,7 @@ export function AgentConsole({
   const pendingFinalizeRef = useRef<(() => void) | null>(null);
   const typewriterRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueRef = useRef("");
+  const thinkingRef = useRef("");
   const streamingRef = useRef(false);
   const hasTokensRef = useRef(false);
   const idRef = useRef(0);
@@ -515,6 +516,7 @@ export function AgentConsole({
     setLiveSteps([]);
     setLiveText("");
     setLiveThinking("");
+    thinkingRef.current = "";
     setStreaming(true);
     streamingRef.current = true;
     hasTokensRef.current = false;
@@ -547,7 +549,10 @@ export function AgentConsole({
             hasTokensRef.current = true;
             enqueueLiveText(t);
           },
-          onThinking: (t: string) => setLiveThinking((prev) => prev + t),
+          onThinking: (t: string) => {
+            thinkingRef.current += t;
+            setLiveThinking((prev) => prev + t);
+          },
           onStep: (s) =>
             setLiveSteps((prev) => [
               ...prev,
@@ -569,7 +574,10 @@ export function AgentConsole({
               const assistantMsg: ConversationMessage = {
                 id: msgId,
                 kind: "assistant",
-                text: p.message,
+                text:
+                  p.message ||
+                  "⚠ AI không trả về nội dung — hãy gửi lại hoặc diễn đạt câu hỏi rõ hơn.",
+                thinking: thinkingRef.current || undefined,
                 findings,
                 timestamp: ts,
               };
@@ -1207,7 +1215,7 @@ function ChatPanel({
           if (item.kind === "assistant") {
             return (
               <div key={item.id}>
-                <ChatBubble role="assistant" text={item.text ?? ""} />
+                <ChatBubble role="assistant" text={item.text ?? ""} thinking={item.thinking} />
                 {undoBtn}
               </div>
             );
@@ -1394,10 +1402,12 @@ function ChatBubble({
   role,
   text,
   error,
+  thinking,
 }: {
   role: "user" | "assistant";
   text: string;
   error?: boolean;
+  thinking?: string;
 }) {
   const isUser = role === "user";
   return (
@@ -1412,6 +1422,16 @@ function ChatBubble({
               : "border border-zinc-800 bg-zinc-900/70 text-zinc-200"
         )}
       >
+        {thinking && !isUser && (
+          <details className="mb-1.5 rounded-lg bg-zinc-950/60 px-2.5 py-1.5">
+            <summary className="cursor-pointer select-none text-[10px] font-medium text-zinc-500">
+              💭 Suy nghĩ của AI
+            </summary>
+            <p className="mt-1 whitespace-pre-line text-[11px] italic leading-relaxed text-zinc-500">
+              {thinking}
+            </p>
+          </details>
+        )}
         {text}
       </div>
     </div>
