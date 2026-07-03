@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { Ref } from "react";
 import type {
   ConversationMessage,
@@ -99,6 +98,8 @@ export function AgentConsole({
   const abortRef = useRef<AbortController | null>(null);
   const pendingFinalizeRef = useRef<(() => void) | null>(null);
   const typewriterRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueRef = useRef("");
+  const streamingRef = useRef(false);
   const hasTokensRef = useRef(false);
   const idRef = useRef(0);
   const estimateRef = useRef(estimate);
@@ -175,7 +176,7 @@ export function AgentConsole({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [thread, liveSteps, streaming]);
+  }, [thread, liveSteps, streaming, liveText]);
 
   // Cleanup abort and typewriter on unmount
   useEffect(() => () => {
@@ -200,10 +201,13 @@ export function AgentConsole({
   // Finalize when streaming ends; guard against clearing while typewriter is running
   useEffect(() => {
     if (streaming) return;
+    // Typewriter still draining — drainTick finalizes when the queue empties.
+    if (typewriterRef.current || queueRef.current) return;
     if (pendingFinalizeRef.current) {
-      pendingFinalizeRef.current();
+      const fin = pendingFinalizeRef.current;
       pendingFinalizeRef.current = null;
-    } else if ((liveText || liveSteps.length) && !typewriterRef.current) {
+      fin();
+    } else if (liveText || liveSteps.length) {
       setLiveText("");
       setLiveSteps([]);
     }
@@ -220,19 +224,32 @@ export function AgentConsole({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estimate.id]);
 
-  function startTypewriter(text: string, onDone: () => void) {
-    let i = 0;
-    const tick = () => {
-      i++;
-      setLiveText(text.slice(0, i));
-      if (i < text.length) {
-        typewriterRef.current = setTimeout(tick, TYPEWRITER_MS);
-      } else {
-        typewriterRef.current = null;
-        onDone();
+  // Token smoothing: LLM streams arrive in large bursts (hundreds of chars per
+  // SSE chunk). Rendering each burst directly makes text "jump" in blocks — or,
+  // for short answers, appear all at once at the end. Instead, tokens are queued
+  // and drained a few chars per tick, adaptively speeding up when the backlog
+  // grows so display never lags the stream by more than ~1s.
+  function enqueueLiveText(text: string) {
+    queueRef.current += text;
+    if (!typewriterRef.current) drainTick();
+  }
+
+  function drainTick() {
+    const q = queueRef.current;
+    if (!q) {
+      typewriterRef.current = null;
+      // Stream already ended and queue is drained → finalize now.
+      if (!streamingRef.current && pendingFinalizeRef.current) {
+        const fin = pendingFinalizeRef.current;
+        pendingFinalizeRef.current = null;
+        fin();
       }
-    };
-    typewriterRef.current = setTimeout(tick, TYPEWRITER_MS);
+      return;
+    }
+    const n = Math.max(1, Math.ceil(q.length / 100));
+    queueRef.current = q.slice(n);
+    setLiveText((prev) => prev + q.slice(0, n));
+    typewriterRef.current = setTimeout(drainTick, TYPEWRITER_MS);
   }
 
   function toggleEditPermission() {
@@ -251,6 +268,7 @@ export function AgentConsole({
       clearTimeout(typewriterRef.current);
       typewriterRef.current = null;
     }
+    queueRef.current = "";
 
     setTab("chat");
 
@@ -266,6 +284,7 @@ export function AgentConsole({
     setLiveSteps([]);
     setLiveText("");
     setStreaming(true);
+    streamingRef.current = true;
     hasTokensRef.current = false;
 
     const ctrl = new AbortController();
@@ -282,12 +301,7 @@ export function AgentConsole({
           editPermission,
           onToken: (t: string) => {
             hasTokensRef.current = true;
-            // flushSync forces React to render immediately after each token
-            // so the typewriter animation updates token-by-token instead of
-            // batching all tokens into one render (React 18 automatic batching).
-            flushSync(() => {
-              setLiveText((prev) => prev + t);
-            });
+            enqueueLiveText(t);
           },
           onStep: (s) =>
             setLiveSteps((prev) => [
@@ -319,27 +333,23 @@ export function AgentConsole({
               finalThread = nextFinalThread;
 
               if (!hasTokensRef.current && p.message) {
-                // Backend buffered the whole response (no token events).
-                // Schedule typewriter to run from inside finalize (after stream ends).
-                pendingFinalizeRef.current = () => {
-                  startTypewriter(p.message, () => {
-                    setThread(nextFinalThread);
-                    setLiveText("");
-                    setLiveSteps([]);
-                    saveConversation(nextFinalThread);
-                  });
-                };
-              } else {
-                // Real streaming tokens arrived — normal finalize
-                pendingFinalizeRef.current = () => {
-                  setThread(nextFinalThread);
-                  setLiveText("");
-                  setLiveSteps([]);
-                  saveConversation(nextFinalThread);
-                };
+                // Backend buffered the whole response (no token events) —
+                // feed it through the same typewriter queue.
+                enqueueLiveText(p.message);
               }
+              pendingFinalizeRef.current = () => {
+                setThread(nextFinalThread);
+                setLiveText("");
+                setLiveSteps([]);
+                saveConversation(nextFinalThread);
+              };
             } else if (editPermission) {
               // Edit mode + actions → auto-apply, no confirmation
+              if (typewriterRef.current) {
+                clearTimeout(typewriterRef.current);
+                typewriterRef.current = null;
+              }
+              queueRef.current = "";
               setLiveText("");
               setLiveSteps([]);
               api.applyActions(estimateRef.current.id, p.actions, "ai")
@@ -384,6 +394,11 @@ export function AgentConsole({
               finalThread = [...nextThread, proposalMsg];
               setThread(finalThread);
               // Actions proposal shows immediately — clear streaming bubble now
+              if (typewriterRef.current) {
+                clearTimeout(typewriterRef.current);
+                typewriterRef.current = null;
+              }
+              queueRef.current = "";
               setLiveText("");
               setLiveSteps([]);
             }
@@ -398,6 +413,11 @@ export function AgentConsole({
             finalThread = [...nextThread, errMsg];
             setThread(finalThread);
             pendingFinalizeRef.current = null;
+            if (typewriterRef.current) {
+              clearTimeout(typewriterRef.current);
+              typewriterRef.current = null;
+            }
+            queueRef.current = "";
             setLiveText("");
             setLiveSteps([]);
           },
@@ -416,11 +436,12 @@ export function AgentConsole({
         } : undefined
       );
     } finally {
+      streamingRef.current = false;
       setStreaming(false);
       abortRef.current = null;
       // Always persist — animation may not complete before user navigates away
       saveConversation(finalThread);
-      if (!pendingFinalizeRef.current && !typewriterRef.current) {
+      if (!pendingFinalizeRef.current && !typewriterRef.current && !queueRef.current) {
         setLiveText("");
         setLiveSteps([]);
       }
