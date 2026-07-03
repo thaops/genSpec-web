@@ -15,7 +15,7 @@ import {
   readCopilotCollapsed,
 } from "@/components/estimate/AgentConsole";
 import type { AgentHandle } from "@/components/estimate/AgentConsole";
-import WorkbookEditor from "@/components/estimate/WorkbookEditor";
+import WorkbookEditor, { type WorkbookDriver } from "@/components/estimate/WorkbookEditor";
 import { InsightsDashboard } from "@/components/estimate/InsightsDashboard";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
 import { takePendingSheets } from "@/lib/pendingSheets";
@@ -67,6 +67,7 @@ export default function EstimateEditorPage() {
   const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
   const agentDrag = useRef({ active: false, startX: 0, startW: 0 });
   const copilotRef = useRef<AgentHandle>(null);
+  const workbookDriverRef = useRef<WorkbookDriver | null>(null);
   const autoSentRef = useRef(false);
 
   useEffect(() => {
@@ -179,6 +180,18 @@ export default function EstimateEditorPage() {
     // Reinit WorkbookEditor so Univer reflects AI-edited cell data
     setWorkbookReinitKey((k) => k + 1);
   };
+
+  // Estimate update after a live agent drive — Univer already shows the values,
+  // so update state WITHOUT reinitializing the editor (no flicker).
+  const syncEstimate = (next: Estimate) => {
+    setEstimate(next);
+  };
+
+  // Agent navigates the workspace: switch to workbook view + target sheet
+  const handleAgentNavigate = useCallback((sheetId: string) => {
+    setViewMode("workbook");
+    setActiveSheetId((prev) => (prev === sheetId ? prev : sheetId));
+  }, []);
 
   async function apply(actions: Action[]) {
     if (!estimate) return;
@@ -404,6 +417,7 @@ export default function EstimateEditorPage() {
               onDataChange={handleDataChange}
               findings={findings}
               reinitKey={workbookReinitKey}
+              driverRef={workbookDriverRef}
             />
           </div>
         </>
@@ -511,6 +525,9 @@ export default function EstimateEditorPage() {
           selectedDrawingObject={selectedDrawingObject}
           drawingViewport={drawingViewport}
           width={agentWidth}
+          workbookDriver={workbookDriverRef}
+          onAgentNavigate={handleAgentNavigate}
+          onEstimateSynced={syncEstimate}
         />
       </div>
     </div>

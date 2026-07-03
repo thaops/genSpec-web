@@ -5,6 +5,21 @@ import { useEffect, useRef } from "react";
 import type { Sheet, Workbook } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 
+/**
+ * Imperative handle the AI agent uses to drive the spreadsheet live —
+ * activating sheets, moving the selection and writing cells so the user
+ * watches the edit happen instead of getting a silent full reload.
+ * Between beginDrive/endDrive the editor suppresses its own persistence
+ * (the agent persists once via the actions endpoint).
+ */
+export interface WorkbookDriver {
+  beginDrive: () => void;
+  endDrive: () => void;
+  focusCell: (sheetId: string, row: number, col: number) => void;
+  writeCell: (sheetId: string, row: number, col: number, value: string | number) => void;
+  flashCell: (sheetId: string, row: number, col: number) => void;
+}
+
 interface Props {
   workbookData: Workbook;
   activeSheetId: string;
@@ -18,6 +33,7 @@ interface Props {
   onDataChange: (sheets: Sheet[]) => void;
   findings?: any[];
   reinitKey?: number;
+  driverRef?: React.MutableRefObject<WorkbookDriver | null>;
 }
 
 // Both modes keep 50=lightest → 900=darkest (Univer's expected direction).
@@ -48,6 +64,7 @@ export default function WorkbookEditor({
   onDataChange,
   findings = [],
   reinitKey = 0,
+  driverRef,
 }: Props) {
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,6 +77,8 @@ export default function WorkbookEditor({
   // Track sheets shown in Univer for diff animation after AI reinit
   const lastSheetsRef = useRef<Sheet[]>([]);
   const dataDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True while the AI agent is driving edits — suppress self-persistence
+  const drivingRef = useRef(false);
 
   // isDark can be explicitly passed (effect ordering fix: child effects run BEFORE
   // parent ThemeProvider updates html class, so reading classList here would be stale).
@@ -207,6 +226,9 @@ export default function WorkbookEditor({
       lastSheetsRef.current = workbookData.sheets ?? [];
 
       wb.onCommandExecuted(() => {
+        // Agent-driven writes are persisted once via the actions endpoint —
+        // skip the editor's own save path to avoid double-posting.
+        if (drivingRef.current) return;
         const cur = wb.getActiveSheet();
         if (cur) onActiveSheetChange(cur.getSheetId());
 
@@ -261,6 +283,60 @@ export default function WorkbookEditor({
       univerAPIRef.current = null;
     };
   }, [workbookData.id, reinitKey]);
+
+  // Expose the agent driver handle (re-assigned every render; refs stay stable)
+  useEffect(() => {
+    if (!driverRef) return;
+    const getSheet = (sheetId: string) => {
+      const wb = univerAPIRef.current?.getActiveWorkbook?.();
+      if (!wb) return null;
+      const sheet = wb.getSheetBySheetId?.(sheetId);
+      if (!sheet) return null;
+      if (wb.getActiveSheet?.()?.getSheetId?.() !== sheetId) wb.setActiveSheet(sheet);
+      return sheet;
+    };
+    driverRef.current = {
+      beginDrive: () => {
+        drivingRef.current = true;
+      },
+      endDrive: () => {
+        drivingRef.current = false;
+        // Resync the change hash so the debounced save doesn't re-post AI writes
+        const wb = univerAPIRef.current?.getActiveWorkbook?.();
+        const raw = wb?.save?.() as any;
+        if (raw?.sheets) {
+          const updated: Sheet[] = Object.keys(raw.sheets).map((key) => {
+            const s = raw.sheets[key];
+            return { id: s.id || key, name: s.name || "Sheet", data: s };
+          });
+          lastCellHashRef.current = JSON.stringify(updated.map((s) => s.data?.cellData ?? {}));
+          lastSheetsRef.current = updated;
+        }
+      },
+      focusCell: (sheetId, row, col) => {
+        try {
+          getSheet(sheetId)?.getRange?.(row, col, 1, 1)?.activate?.();
+        } catch (_) {}
+      },
+      writeCell: (sheetId, row, col, value) => {
+        try {
+          getSheet(sheetId)?.getRange?.(row, col, 1, 1)?.setValue?.(value);
+        } catch (_) {}
+      },
+      flashCell: (sheetId, row, col) => {
+        try {
+          const range = getSheet(sheetId)?.getRange?.(row, col, 1, 1);
+          range?.setBackgroundColor?.("#1e3a8a");
+          setTimeout(() => {
+            try { range?.setBackgroundColor?.(""); } catch (_) {}
+          }, 1200);
+        } catch (_) {}
+      },
+    };
+    return () => {
+      driverRef.current = null;
+    };
+  }, [driverRef, reinitKey, workbookData.id]);
 
   useEffect(() => {
     const wb = univerAPIRef.current?.getActiveWorkbook?.();

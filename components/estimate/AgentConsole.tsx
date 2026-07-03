@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Ref } from "react";
 import type {
+  Action,
   ConversationMessage,
   CopilotProposal,
   Drawing,
@@ -12,6 +13,7 @@ import type {
   ReviewFinding,
   AiContext,
 } from "@/lib/types";
+import type { WorkbookDriver } from "./WorkbookEditor";
 import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -63,6 +65,13 @@ interface Props {
   selectedDrawingObject?: DrawingObject;
   drawingViewport?: DrawingViewportInfo;
   width?: number;
+  /** Live-drive handle into the spreadsheet (AI moves selection & writes cells) */
+  workbookDriver?: React.RefObject<WorkbookDriver | null>;
+  /** Called when the agent navigates to a sheet so the page syncs its view */
+  onAgentNavigate?: (sheetId: string) => void;
+  /** Estimate update WITHOUT editor reinit — used after a live drive already
+      wrote the same values into the grid */
+  onEstimateSynced?: (e: Estimate) => void;
 }
 
 export function AgentConsole({
@@ -79,6 +88,9 @@ export function AgentConsole({
   selectedDrawingObject,
   drawingViewport,
   width,
+  workbookDriver,
+  onAgentNavigate,
+  onEstimateSynced,
 }: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<AgentTab>("today");
@@ -88,6 +100,7 @@ export function AgentConsole({
   const [liveSteps, setLiveSteps] = useState<TimelineStep[]>([]);
   const [liveText, setLiveText] = useState("");
   const [liveThinking, setLiveThinking] = useState("");
+  const [driveStatus, setDriveStatus] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [editPermission, setEditPermission] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -177,7 +190,7 @@ export function AgentConsole({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [thread, liveSteps, streaming, liveText, liveThinking]);
+  }, [thread, liveSteps, streaming, liveText, liveThinking, driveStatus]);
 
   // Cleanup abort and typewriter on unmount
   useEffect(() => () => {
@@ -252,6 +265,53 @@ export function AgentConsole({
     queueRef.current = q.slice(n);
     setLiveText((prev) => prev + q.slice(0, n));
     typewriterRef.current = setTimeout(drainTick, TYPEWRITER_MS);
+  }
+
+  // ── Live drive: the agent operates the spreadsheet like a user ────────────
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  function a1ToRowCol(cell: string): { row: number; col: number } | null {
+    const m = /^([A-Za-z]+)(\d+)$/.exec(cell.trim());
+    if (!m) return null;
+    let col = 0;
+    for (const ch of m[1].toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
+    return { row: Number(m[2]) - 1, col: col - 1 };
+  }
+
+  const MAX_DRIVE_STEPS = 40;
+
+  /**
+   * Replays cell actions visually: activate sheet → move selection → write →
+   * flash — so the user watches the AI edit the grid in real time.
+   * Returns true only when EVERY action was driven into the grid; otherwise
+   * the caller must fall back to a full editor reload.
+   */
+  async function driveActions(actions: Action[]): Promise<boolean> {
+    const driver = workbookDriver?.current;
+    if (!driver) return false;
+    const cellActs = actions.filter(
+      (a): a is Extract<Action, { type: "update_cells" }> => a.type === "update_cells"
+    );
+    if (cellActs.length === 0) return false;
+    driver.beginDrive();
+    try {
+      for (const a of cellActs.slice(0, MAX_DRIVE_STEPS)) {
+        const rc = a1ToRowCol(a.cell);
+        if (!rc) continue;
+        onAgentNavigate?.(a.sheetId);
+        setDriveStatus(`Đang sửa ô ${a.cell} → ${a.newValue}`);
+        driver.focusCell(a.sheetId, rc.row, rc.col);
+        await sleep(320);
+        driver.writeCell(a.sheetId, rc.row, rc.col, a.newValue);
+        driver.flashCell(a.sheetId, rc.row, rc.col);
+        await sleep(200);
+      }
+    } finally {
+      driver.endDrive();
+      setDriveStatus(null);
+    }
+    // Fully driven only if nothing was skipped or truncated
+    return actions.length === cellActs.length && cellActs.length <= MAX_DRIVE_STEPS;
   }
 
   function toggleEditPermission() {
@@ -358,9 +418,15 @@ export function AgentConsole({
               setLiveText("");
               setLiveThinking("");
               setLiveSteps([]);
-              api.applyActions(estimateRef.current.id, p.actions, "ai")
-                .then((res) => {
-                  onEstimateUpdated(res.estimate);
+              // Drive the edits live on the grid, then persist once
+              driveActions(p.actions)
+                .catch(() => false)
+                .then((fullyDriven) =>
+                  api.applyActions(estimateRef.current.id, p.actions, "ai").then((res) => ({ res, fullyDriven }))
+                )
+                .then(({ res, fullyDriven }) => {
+                  if (fullyDriven && onEstimateSynced) onEstimateSynced(res.estimate);
+                  else onEstimateUpdated(res.estimate);
                   const applied = res.applied ?? p.actions.length;
                   const doneMsg: ConversationMessage = {
                     id: msgId,
@@ -463,13 +529,20 @@ export function AgentConsole({
         x.msgId === item.msgId ? { ...x, state: "applying" } : x
       )
     );
+    let fullyDriven = false;
+    try {
+      fullyDriven = await driveActions(item.proposal.actions);
+    } catch {
+      fullyDriven = false;
+    }
     try {
       const res = await api.applyActions(
         estimateRef.current.id,
         item.proposal.actions,
         "ai"
       );
-      onEstimateUpdated(res.estimate);
+      if (fullyDriven && onEstimateSynced) onEstimateSynced(res.estimate);
+      else onEstimateUpdated(res.estimate);
       const applied = res.applied ?? item.proposal.actions.length;
       setProposals((prev) =>
         prev.map((x) =>
@@ -703,6 +776,7 @@ export function AgentConsole({
             typedTail={typedTail}
             caretActive={caretActive}
             liveThinking={liveThinking}
+            driveStatus={driveStatus}
             liveSteps={liveSteps}
             historyLoaded={historyLoaded}
             editPermission={editPermission}
@@ -1049,6 +1123,7 @@ interface ChatPanelProps {
   typedTail: string;
   caretActive: boolean;
   liveThinking: string;
+  driveStatus: string | null;
   liveSteps: TimelineStep[];
   historyLoaded: boolean;
   editPermission: boolean;
@@ -1089,6 +1164,7 @@ function ChatPanel({
   typedTail,
   caretActive,
   liveThinking,
+  driveStatus,
   liveSteps,
   historyLoaded,
   editPermission,
@@ -1198,6 +1274,16 @@ function ChatPanel({
         {/* Keep bubble visible while streaming OR while typewriter animation is still catching up.
             Without this, streaming=false hides the bubble before pendingFinalizeRef fires,
             causing the "all text at once" flash the user sees. */}
+        {/* Agent is operating the grid — persistent indicator until drive ends */}
+        {driveStatus && (
+          <div className="flex animate-slide-up justify-start">
+            <div className="flex max-w-[88%] items-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3.5 py-2 text-xs text-blue-200">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+              <Bot className="h-3.5 w-3.5 shrink-0" />
+              {driveStatus}
+            </div>
+          </div>
+        )}
         {(streaming || !!typedTail) && (
           <div className="flex animate-slide-up justify-start">
             <div className="max-w-[88%] rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-2.5 text-sm text-zinc-200">
