@@ -16,7 +16,6 @@ import type {
   Drawing,
   DrawingObject,
   RevisionDiff,
-  WorkspacePreference,
   AppNotification,
   BackgroundJob,
 } from "./types";
@@ -425,7 +424,7 @@ export const api = {
   },
 
   detectDrawingObjects: (estimateId: string, drawingId: string) =>
-    request<{ objects: DrawingObject[] }>(
+    request<{ drawingId: string; objectCount: number; objects: DrawingObject[] }>(
       `/estimates/${estimateId}/drawings/${drawingId}/detect`,
       { method: "POST" }
     ),
@@ -445,16 +444,6 @@ export const api = {
       `/estimates/${estimateId}/drawings/${drawingId}`,
       { method: "DELETE" }
     ),
-
-  // ---------- Workspace Preferences ----------
-  getPreferences: (estimateId: string) =>
-    request<WorkspacePreference>(`/estimates/${estimateId}/preferences`),
-
-  savePreferences: (estimateId: string, prefs: Partial<WorkspacePreference>) =>
-    request<WorkspacePreference>(`/estimates/${estimateId}/preferences`, {
-      method: "PUT",
-      body: prefs,
-    }),
 
   // ---------- Notifications ----------
   getNotifications: () => request<AppNotification[]>("/notifications"),

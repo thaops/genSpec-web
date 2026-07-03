@@ -112,7 +112,11 @@ export function DrawingWorkspace({
 
   // Load objects when drawing becomes ready (first select OR after parsing completes)
   useEffect(() => {
-    if (!activeDrawingId) { setObjects([]); return; }
+    // Reset per-drawing state so a processing/failed drawing never shows the
+    // previous drawing's objects or selection.
+    setObjects([]);
+    setSelectedObject(null);
+    if (!activeDrawingId) return;
     if (activeDrawing?.parseStatus && activeDrawing.parseStatus !== 'ready') return;
     setLoadingObjects(true);
     api.getDrawing(estimateId, activeDrawingId)
@@ -154,8 +158,14 @@ export function DrawingWorkspace({
     const job = addJob({ id: crypto.randomUUID(), type: "ai_detect", status: "processing", progress: 0, message: "Đang phân tích bản vẽ..." });
     try {
       const res = await api.detectDrawingObjects(estimateId, activeDrawingId);
-      setObjects(res.objects);
-      updateJob(job.id, { status: "done", progress: 100, message: `Tìm thấy ${res.objects.length} đối tượng` });
+      let objs = res.objects ?? [];
+      if (!res.objects) {
+        // Defensive: older BE response without objects — re-fetch the drawing
+        const d = await api.getDrawing(estimateId, activeDrawingId);
+        objs = d.objects ?? [];
+      }
+      setObjects(objs);
+      updateJob(job.id, { status: "done", progress: 100, message: `Tìm thấy ${objs.length} đối tượng` });
     } catch {
       updateJob(job.id, { status: "failed", message: "Phân tích thất bại" });
     } finally {

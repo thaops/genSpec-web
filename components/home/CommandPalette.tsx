@@ -13,6 +13,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   estimates: EstimateListItem[];
+  /** Opens the New Workspace modal (used by the Import Excel command) */
+  onImport?: () => void;
 }
 
 const QUICK_COMMANDS: { id: string; label: string; Icon: React.ComponentType<{ className?: string }>; action: string }[] = [
@@ -24,7 +26,7 @@ const QUICK_COMMANDS: { id: string; label: string; Icon: React.ComponentType<{ c
   { id: "official", label: "Tra cứu văn bản chính thức", Icon: ClipboardList, action: "official" },
 ];
 
-export function CommandPalette({ open, onClose, estimates }: Props) {
+export function CommandPalette({ open, onClose, estimates, onImport }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -117,7 +119,11 @@ export function CommandPalette({ open, onClose, estimates }: Props) {
       router.push(`/estimate/${estimates[0].id}`);
       return;
     }
-    // import — just close for now
+    if (action === "import") {
+      onClose();
+      onImport?.();
+      return;
+    }
     onClose();
   }
 

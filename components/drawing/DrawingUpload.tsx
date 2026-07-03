@@ -28,11 +28,30 @@ interface DrawingUploadProps {
 
 export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
   const inputRef    = useRef<HTMLInputElement>(null);
+  // Live connections/timers — cleaned up on unmount so a mid-parse unmount
+  // doesn't leak the SSE stream, the poll interval, or setState calls.
+  const esRef       = useRef<EventSource | null>(null);
+  const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finalizeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef  = useRef(true);
   const [dragging, setDragging]   = useState(false);
   const [uploading, setUploading] = useState(false);
   const [stepMsg,   setStepMsg]   = useState<string | null>(null);
   const [percent,   setPercent]   = useState(0);
   const [error,     setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      esRef.current?.close();
+      esRef.current = null;
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+      if (finalizeRef.current) clearTimeout(finalizeRef.current);
+      finalizeRef.current = null;
+    };
+  }, []);
 
   async function handleFile(file: File) {
     setUploading(true);
@@ -68,8 +87,10 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
       // Poll job status via SSE
       const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
       const es = new EventSource(`${apiBase}/jobs/${jobId}/stream`);
+      esRef.current = es;
 
       es.onmessage = (e) => {
+        if (!mountedRef.current) return;
         const data = JSON.parse(e.data) as {
           state: string;
           progress: { step: string; message: string; percent: number };
@@ -100,9 +121,41 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
 
       es.onerror = () => {
         es.close();
-        // SSE closed — assume done and refresh
-        updateJob(job.id, { status: "done", progress: 100, message: `${file.name} xong` });
-        finalize(result);
+        esRef.current = null;
+        if (!mountedRef.current) return;
+        // SSE dropped — poll the drawing until parse finishes instead of faking success
+        updateJob(job.id, { message: `${file.name}: mất kết nối, đang kiểm tra...` });
+        let pollErrors = 0;
+        const stopPoll = () => {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+        };
+        pollRef.current = setInterval(async () => {
+          try {
+            const d = await api.getDrawing(estimateId, result.id);
+            if (!mountedRef.current) return stopPoll();
+            pollErrors = 0;
+            if (d.parseStatus === "ready") {
+              stopPoll();
+              updateJob(job.id, { status: "done", progress: 100, message: `${file.name} sẵn sàng` });
+              finalize({ ...result, parseStatus: "ready" });
+            } else if (d.parseStatus === "failed") {
+              stopPoll();
+              updateJob(job.id, { status: "failed", message: STEP_LABELS.failed });
+              setError(STEP_LABELS.failed);
+              setUploading(false);
+            }
+          } catch {
+            if (!mountedRef.current) return stopPoll();
+            if (++pollErrors >= 3) {
+              stopPoll();
+              const msg = "Mất kết nối — kiểm tra lại sau";
+              updateJob(job.id, { status: "failed", message: msg });
+              setError(msg);
+              setUploading(false);
+            }
+          }
+        }, 4000);
       };
     } catch (e) {
       updateJob(job.id, { status: "failed", message: (e as ApiError).message });
@@ -113,9 +166,12 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
   }
 
   function finalize(drawing: Drawing) {
+    if (!mountedRef.current) return;
     setStepMsg("Bản vẽ sẵn sàng!");
     setPercent(100);
-    setTimeout(() => {
+    finalizeRef.current = setTimeout(() => {
+      finalizeRef.current = null;
+      if (!mountedRef.current) return;
       setStepMsg(null);
       setPercent(0);
       setUploading(false);

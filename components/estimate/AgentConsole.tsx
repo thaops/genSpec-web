@@ -8,10 +8,8 @@ import type {
   CopilotProposal,
   Drawing,
   DrawingObject,
-  DrawingObjectType,
   Estimate,
   ReviewFinding,
-  AiContext,
 } from "@/lib/types";
 import type { WorkbookDriver } from "./WorkbookEditor";
 import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
@@ -19,20 +17,52 @@ import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 import { CopilotComposer } from "./CopilotComposer";
-import { LiveTimeline, type TimelineStep } from "./LiveTimeline";
+import { type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
 import { HistoryTimeline } from "./HistoryTimeline";
 import { SparkleIcon, ChevronRightIcon } from "@/components/ui/icons";
-import { Bot, CheckCircle2 as CheckCircle2Icon, ClipboardList, Lock, MapPin, Ruler, XCircle, AlertTriangle, Info } from "lucide-react";
+import { Bot, History as HistoryIcon, Lock, MapPin, Ruler } from "lucide-react";
 import { takePendingTask, type PendingTask } from "@/lib/pendingTask";
 import { TaskCard } from "./TaskCard";
+
+// Labels for non-cell action types shown in the auto-apply summary
+const ACTION_TYPE_VI: Record<string, string> = {
+  upsert_takeoff: "cập nhật khối lượng",
+  delete_takeoff: "xóa khối lượng",
+  upsert_material: "cập nhật vật tư",
+  update_price: "cập nhật giá",
+  set_project_info: "cập nhật thông tin dự án",
+  set_sheets: "cập nhật bảng tính",
+  clear: "xóa dữ liệu",
+};
+
+/** Compact plain-text diff for the auto-apply done message. */
+function buildAppliedDiff(actions: Action[]): string {
+  const cellEdits = actions.filter(
+    (a): a is Extract<Action, { type: "update_cells" }> => a.type === "update_cells"
+  );
+  const lines = cellEdits
+    .slice(0, 10)
+    .map((a) => `• ${a.cell}: ${a.oldValue} → ${a.newValue}`);
+  if (cellEdits.length > 10) {
+    lines.push(`… và ${cellEdits.length - 10} thay đổi khác`);
+  }
+  const otherCounts = new Map<string, number>();
+  for (const a of actions) {
+    if (a.type !== "update_cells") {
+      otherCounts.set(a.type, (otherCounts.get(a.type) ?? 0) + 1);
+    }
+  }
+  for (const [type, n] of otherCounts) {
+    lines.push(`• ${n} ${ACTION_TYPE_VI[type] ?? type}`);
+  }
+  return lines.length > 0 ? `\n${lines.join("\n")}` : "";
+}
 
 export interface AgentHandle {
   send: (text: string, files: File[]) => void;
   injectMessage: (msg: Pick<ConversationMessage, "kind" | "text">) => void;
 }
-
-type AgentTab = "today" | "chat" | "plan" | "review" | "proposals" | "history";
 
 interface ProposalItem {
   msgId: string;
@@ -76,7 +106,6 @@ interface Props {
 
 export function AgentConsole({
   estimate,
-  drawings = [],
   onEstimateUpdated,
   controlRef,
   collapsed,
@@ -93,10 +122,9 @@ export function AgentConsole({
   onEstimateSynced,
 }: Props) {
   const toast = useToast();
-  const [tab, setTab] = useState<AgentTab>("today");
+  const [showHistory, setShowHistory] = useState(false);
   const [thread, setThread] = useState<ConversationMessage[]>([]);
   const [proposals, setProposals] = useState<ProposalItem[]>([]);
-  const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
   const [liveSteps, setLiveSteps] = useState<TimelineStep[]>([]);
   const [liveText, setLiveText] = useState("");
   const [liveThinking, setLiveThinking] = useState("");
@@ -118,6 +146,9 @@ export function AgentConsole({
   const idRef = useRef(0);
   const estimateRef = useRef(estimate);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Auto-scroll guard: don't yank the view down while the user reads history
+  const isAtBottomRef = useRef(true);
+  const prevThreadLenRef = useRef(0);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const typedTail =
@@ -184,13 +215,24 @@ export function AgentConsole({
     [estimate.id]
   );
 
-  // Auto-scroll chat
+  // Auto-scroll chat — only when the user is at the bottom, or just sent a message
   useEffect(() => {
+    const userSent =
+      thread.length > prevThreadLenRef.current &&
+      thread[thread.length - 1]?.kind === "user";
+    prevThreadLenRef.current = thread.length;
+    if (!isAtBottomRef.current && !userSent) return;
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
   }, [thread, liveSteps, streaming, liveText, liveThinking, driveStatus]);
+
+  const handleChatScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+  }, []);
 
   // Cleanup abort and typewriter on unmount
   useEffect(() => () => {
@@ -233,7 +275,7 @@ export function AgentConsole({
     const task = takePendingTask(estimate.id);
     if (task) {
       setActiveTask(task);
-      setTab("chat");
+      setShowHistory(false);
       if (collapsed) onCollapsedChange(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -332,7 +374,7 @@ export function AgentConsole({
     }
     queueRef.current = "";
 
-    setTab("chat");
+    setShowHistory(false);
 
     const userMsg: ConversationMessage = {
       id: nextId(),
@@ -380,7 +422,6 @@ export function AgentConsole({
               | undefined;
 
             if (findings?.length) {
-              setReviewFindings(findings);
               onFindings?.(findings);
             }
 
@@ -428,10 +469,11 @@ export function AgentConsole({
                   if (fullyDriven && onEstimateSynced) onEstimateSynced(res.estimate);
                   else onEstimateUpdated(res.estimate);
                   const applied = res.applied ?? p.actions.length;
+                  const diffText = buildAppliedDiff(p.actions);
                   const doneMsg: ConversationMessage = {
                     id: msgId,
                     kind: "assistant",
-                    text: `${p.message}\n\n✓ Đã áp dụng ${applied} thay đổi.`,
+                    text: `${p.message}\n\n✓ Đã áp dụng ${applied} thay đổi.${diffText}`,
                     timestamp: ts,
                   };
                   const nextFinalThread = [...nextThread, doneMsg];
@@ -611,7 +653,7 @@ export function AgentConsole({
           timestamp: new Date().toISOString(),
         };
         setThread((prev) => [...prev, full]);
-        setTab("chat");
+        setShowHistory(false);
       },
     };
   });
@@ -621,7 +663,10 @@ export function AgentConsole({
     return (
       <button
         type="button"
-        onClick={() => onCollapsedChange(false)}
+        onClick={() => {
+          onCollapsedChange(false);
+          localStorage.setItem(COLLAPSED_KEY, "0");
+        }}
         className="group flex w-12 shrink-0 flex-col items-center gap-3 border-l border-zinc-800 bg-zinc-950 py-4"
       >
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-700 text-white shadow-[0_8px_24px_-8px_rgba(59,130,246,0.7)] transition-transform group-hover:scale-105">
@@ -637,19 +682,6 @@ export function AgentConsole({
     );
   }
 
-  const pendingProposals = proposals.filter((p) => p.state === "pending").length;
-  const criticalCount = reviewFindings.filter((f) => f.severity === "critical").length;
-  const warningCount = reviewFindings.filter((f) => f.severity === "warning").length;
-
-  const TAB_LABELS: Record<AgentTab, string> = {
-    today: "Today",
-    chat: "Chat",
-    plan: "Plan",
-    review: "Review",
-    proposals: "Proposals",
-    history: "History",
-  };
-
   return (
     <aside
       className="flex shrink-0 flex-col border-l border-zinc-800 bg-zinc-950"
@@ -663,6 +695,18 @@ export function AgentConsole({
         <div className="min-w-0 flex-1">
           <h2 className="text-[13px] font-semibold text-zinc-200">QS Agent</h2>
         </div>
+        {/* History (patch timeline + rollback) */}
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          title="Lịch sử thay đổi"
+          className={cn(
+            "rounded-lg p-1 transition-colors hover:bg-zinc-800",
+            showHistory ? "bg-zinc-800 text-zinc-200" : "text-zinc-500 hover:text-zinc-200"
+          )}
+        >
+          <HistoryIcon className="h-4 w-4" />
+        </button>
         {/* Edit permission toggle */}
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-zinc-500">Edit</span>
@@ -695,71 +739,9 @@ export function AgentConsole({
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-0.5 border-b border-zinc-800 px-2 py-1">
-        {(["today", "chat", "plan", "review", "proposals", "history"] as AgentTab[]).map(
-          (t) => {
-            const badge =
-              t === "proposals" && pendingProposals > 0
-                ? pendingProposals
-                : t === "review" && criticalCount + warningCount > 0
-                  ? criticalCount + warningCount
-                  : null;
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
-                  tab === t
-                    ? "bg-zinc-800 text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-300"
-                )}
-              >
-                {TAB_LABELS[t]}
-                {badge != null && (
-                  <span
-                    className={cn(
-                      "rounded-full px-1 text-[10px]",
-                      t === "proposals"
-                        ? "bg-accent-500/20 text-accent-300"
-                        : criticalCount > 0
-                          ? "bg-rose-500/20 text-rose-300"
-                          : "bg-amber-500/20 text-amber-300"
-                    )}
-                  >
-                    {badge}
-                  </span>
-                )}
-              </button>
-            );
-          }
-        )}
-      </div>
-
-      {/* Tab content */}
+      {/* Single surface: chat (history slides in via header toggle) */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {tab === "today" && (
-          <TodayPanel estimate={estimate} drawings={drawings} onSwitchToChat={() => setTab("chat")} />
-        )}
-        {tab === "plan" && (
-          <PlanPanel steps={liveSteps} streaming={streaming} />
-        )}
-        {tab === "review" && (
-          <ReviewPanel
-            findings={reviewFindings}
-            onFindingClick={onFindings}
-          />
-        )}
-        {tab === "proposals" && (
-          <ProposalsPanel
-            proposals={proposals}
-            onApply={applyProposal}
-            onDiscard={discardProposal}
-          />
-        )}
-        {tab === "history" && (
+        {showHistory ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <HistoryTimeline
               history={estimate.patchHistory ?? []}
@@ -767,8 +749,7 @@ export function AgentConsole({
               rollbackLoadingId={rollbackLoadingId}
             />
           </div>
-        )}
-        {tab === "chat" && (
+        ) : (
           <ChatPanel
             thread={thread}
             proposals={proposals}
@@ -789,9 +770,9 @@ export function AgentConsole({
             onSend={send}
             onApplyProposal={applyProposal}
             onDiscardProposal={discardProposal}
-            onSwitchToProposals={() => setTab("proposals")}
             onClearTask={() => setActiveTask(null)}
             scrollRef={scrollRef}
+            onScroll={handleChatScroll}
           />
         )}
       </div>
@@ -799,320 +780,6 @@ export function AgentConsole({
   );
 }
 
-// ── Today Panel ─────────────────────────────────────────────────────────────
-
-const OBJECT_TYPE_VI: Partial<Record<DrawingObjectType, string>> = {
-  beam: "Dầm", column: "Cột", wall: "Tường", slab: "Sàn",
-  door: "Cửa", window: "Cửa sổ", stair: "Cầu thang",
-  footing: "Móng", pile: "Cọc", roof: "Mái",
-};
-
-const STEP_HINTS: Record<string, string> = {
-  "Upload bản vẽ":    "Kéo thả file PDF, DXF hoặc DWG vào vùng Drawings",
-  "AI phân tích":     "AI đang xử lý bản vẽ — có thể làm việc khác trong lúc chờ",
-  "Bóc khối lượng":   "Chọn đối tượng trên bản vẽ → AI tạo Takeoff tự động",
-  "Điền đơn giá":     "Nhập vật tư, nhân công hoặc yêu cầu AI tra giá từ Sở XD",
-  "Review & Xuất F1": "Kiểm tra BOQ rồi Export F1.xlsx",
-};
-
-function TodayPanel({
-  estimate,
-  drawings,
-  onSwitchToChat,
-}: {
-  estimate: Estimate;
-  drawings: Drawing[];
-  onSwitchToChat: () => void;
-}) {
-  const hasDrawings  = drawings.length > 0;
-  const hasDetected  = drawings.some((d) => d.parseStatus === "ready");
-  const hasTakeoff   = (estimate.takeoff?.length ?? 0) > 0;
-  const hasResources = (estimate.analyses?.length ?? 0) > 0 || (estimate.materials?.length ?? 0) > 0;
-  const hasBoq       = (estimate.boq?.length ?? 0) > 0 || (estimate.costs?.total ?? 0) > 0;
-
-  const steps = [
-    { label: "Upload bản vẽ",    done: hasDrawings,  hint: hasDrawings ? `${drawings.length} bản vẽ` : null },
-    { label: "AI phân tích",     done: hasDetected,  hint: hasDetected ? "Hoàn thành" : hasDrawings ? "Đang xử lý..." : null },
-    { label: "Bóc khối lượng",   done: hasTakeoff,   hint: hasTakeoff ? `${estimate.takeoff.length} items` : null },
-    { label: "Điền đơn giá",     done: hasResources, hint: hasResources ? `${estimate.analyses.length} phân tích` : null },
-    { label: "Review & Xuất F1", done: hasBoq,       hint: hasBoq ? "BOQ sẵn sàng" : null },
-  ];
-
-  const activeIdx = steps.findIndex((s) => !s.done);
-  const doneCount = steps.filter((s) => s.done).length;
-  const pct = Math.round((doneCount / steps.length) * 100);
-
-  return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-5">
-      {/* Overall progress */}
-      <div>
-        <div className="mb-1.5 flex items-center justify-between text-[11px]">
-          <span className="font-semibold uppercase tracking-wider text-zinc-600">Tiến độ dự án</span>
-          <span className="text-zinc-500">{pct}%</span>
-        </div>
-        <div className="h-1.5 rounded-full bg-zinc-800">
-          <div
-            className="h-1.5 rounded-full bg-accent-500 transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Pipeline checklist */}
-      <div className="space-y-1">
-        {steps.map((step, i) => {
-          const isActive = i === activeIdx;
-          return (
-            <div
-              key={i}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors",
-                isActive ? "bg-accent-500/10 border border-accent-500/20" : ""
-              )}
-            >
-              <span
-                className={cn(
-                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                  step.done
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : isActive
-                      ? "bg-accent-500/20 text-accent-400"
-                      : "bg-zinc-800 text-zinc-600"
-                )}
-              >
-                {step.done ? "✓" : i + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <span
-                  className={cn(
-                    "text-[13px]",
-                    step.done
-                      ? "text-zinc-600 line-through"
-                      : isActive
-                        ? "font-medium text-zinc-100"
-                        : "text-zinc-400"
-                  )}
-                >
-                  {step.label}
-                </span>
-                {step.hint && (
-                  <span className="ml-2 text-[11px] text-zinc-600">{step.hint}</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Active step guidance */}
-      {activeIdx >= 0 && (
-        <div className="rounded-xl border border-accent-500/20 bg-accent-500/5 p-3 space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-accent-400">
-            Bước tiếp theo
-          </p>
-          <p className="text-[13px] leading-snug text-zinc-200">
-            {STEP_HINTS[steps[activeIdx].label] ?? steps[activeIdx].label}
-          </p>
-          <button
-            onClick={onSwitchToChat}
-            className="mt-1 text-[12px] text-accent-400 hover:text-accent-300 transition-colors"
-          >
-            Hỏi QS Agent →
-          </button>
-        </div>
-      )}
-
-      {activeIdx === -1 && (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-          <p className="text-[13px] font-medium text-emerald-400">Dự án sẵn sàng xuất ✓</p>
-          <p className="text-[12px] text-zinc-500 mt-0.5">Export F1.xlsx từ thanh công cụ trên cùng</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Plan Panel ───────────────────────────────────────────────────────────────
-
-function PlanPanel({
-  steps,
-  streaming,
-}: {
-  steps: TimelineStep[];
-  streaming: boolean;
-}) {
-  if (steps.length === 0 && !streaming) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <div>
-          <Bot className="mb-3 h-8 w-8 text-zinc-600" />
-          <p className="text-sm font-medium text-zinc-400">Agent sẵn sàng</p>
-          <p className="mt-1 text-[12px] text-zinc-600">
-            Kế hoạch hiển thị khi Agent đang xử lý
-          </p>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="flex-1 overflow-y-auto p-4">
-      <LiveTimeline steps={steps} streaming={streaming} />
-    </div>
-  );
-}
-
-// ── Review Panel ─────────────────────────────────────────────────────────────
-
-function ReviewPanel({
-  findings,
-  onFindingClick,
-}: {
-  findings: ReviewFinding[];
-  onFindingClick?: (findings: ReviewFinding[]) => void;
-}) {
-  if (findings.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <div>
-          <CheckCircle2Icon className="mb-3 h-8 w-8 text-zinc-600" />
-          <p className="text-sm font-medium text-zinc-400">
-            Chưa có kết quả review
-          </p>
-          <p className="mt-1 text-[12px] text-zinc-600">
-            Nhập &ldquo;kiểm tra workbook&rdquo; để chạy Review
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const critical = findings.filter((f) => f.severity === "critical");
-  const warnings = findings.filter((f) => f.severity === "warning");
-  const info = findings.filter((f) => f.severity === "info");
-  const health = Math.max(
-    0,
-    100 - critical.length * 15 - warnings.length * 5 - info.length
-  );
-
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="border-b border-zinc-800 p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[13px] font-semibold text-zinc-200">
-            Workbook Health
-          </span>
-          <span
-            className={cn(
-              "text-xl font-bold",
-              health >= 90
-                ? "text-emerald-400"
-                : health >= 70
-                  ? "text-amber-400"
-                  : "text-rose-400"
-            )}
-          >
-            {health}%
-          </span>
-        </div>
-        <div className="flex gap-3 text-[12px]">
-          {critical.length > 0 && (
-            <span className="flex items-center gap-1 text-rose-400"><XCircle className="h-3 w-3" /> {critical.length} Critical</span>
-          )}
-          {warnings.length > 0 && (
-            <span className="flex items-center gap-1 text-amber-400">
-              <AlertTriangle className="h-3 w-3" /> {warnings.length} Warnings
-            </span>
-          )}
-          {info.length > 0 && (
-            <span className="flex items-center gap-1 text-zinc-400"><Info className="h-3 w-3" /> {info.length} Info</span>
-          )}
-        </div>
-      </div>
-      <div className="divide-y divide-zinc-800/50">
-        {findings.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => onFindingClick?.([f])}
-            className="w-full px-4 py-3 text-left transition-colors hover:bg-zinc-900/50"
-          >
-            <div className="flex items-start gap-2">
-              <span className="mt-0.5 shrink-0">
-                {f.severity === "critical"
-                  ? <XCircle className="h-3.5 w-3.5 text-rose-400" />
-                  : f.severity === "warning"
-                    ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                    : <Info className="h-3.5 w-3.5 text-zinc-400" />}
-              </span>
-              <div className="min-w-0">
-                <p className="text-[12.5px] leading-snug text-zinc-200">
-                  {f.message}
-                </p>
-                {f.suggestion && (
-                  <p className="mt-0.5 text-[11px] text-zinc-500">
-                    {f.suggestion}
-                  </p>
-                )}
-                {f.area && (
-                  <span className="mt-1 inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                    {f.area}
-                  </span>
-                )}
-              </div>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Proposals Panel ──────────────────────────────────────────────────────────
-
-function ProposalsPanel({
-  proposals,
-  onApply,
-  onDiscard,
-}: {
-  proposals: ProposalItem[];
-  onApply: (item: ProposalItem) => void;
-  onDiscard: (item: ProposalItem) => void;
-}) {
-  if (proposals.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <div>
-          <ClipboardList className="mb-3 h-8 w-8 text-zinc-600" />
-          <p className="text-sm font-medium text-zinc-400">Chưa có đề xuất</p>
-          <p className="mt-1 text-[12px] text-zinc-600">
-            Bật Edit và yêu cầu AI chỉnh sửa để tạo Proposal
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 divide-y divide-zinc-800/50 overflow-y-auto">
-      {[...proposals].reverse().map((item) => (
-        <div key={item.msgId} className="p-3">
-          <ProposalCard
-            proposal={item.proposal}
-            state={item.state}
-            appliedCount={item.appliedCount}
-            fresh={item.state === "pending"}
-            onApply={() => onApply(item)}
-            onDiscard={() => onDiscard(item)}
-            onViewActivity={() => { }}
-          />
-          <p className="mt-1 px-1 text-[10px] text-zinc-600">
-            {new Date(item.timestamp).toLocaleTimeString("vi-VN")}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Chat Panel ───────────────────────────────────────────────────────────────
 
@@ -1136,9 +803,9 @@ interface ChatPanelProps {
   onSend: (text?: string, files?: File[]) => void;
   onApplyProposal: (item: ProposalItem) => void;
   onDiscardProposal: (item: ProposalItem) => void;
-  onSwitchToProposals: () => void;
   onClearTask: () => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  onScroll: () => void;
 }
 
 function colLetter(col: number): string {
@@ -1177,9 +844,9 @@ function ChatPanel({
   onSend,
   onApplyProposal,
   onDiscardProposal,
-  onSwitchToProposals,
   onClearTask,
   scrollRef,
+  onScroll,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -1194,6 +861,7 @@ function ChatPanel({
     <>
       <div
         ref={scrollRef}
+        onScroll={onScroll}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
       >
         {/* Task Card — shown when a home action navigated here */}
@@ -1264,7 +932,7 @@ function ChatPanel({
                 fresh={proposalItem.state === "pending"}
                 onApply={() => onApplyProposal(proposalItem)}
                 onDiscard={() => onDiscardProposal(proposalItem)}
-                onViewActivity={onSwitchToProposals}
+                onViewActivity={() => {}}
               />
             );
           }
@@ -1416,10 +1084,6 @@ function ChatBubble({
     </div>
   );
 }
-
-// ── Compat exports ────────────────────────────────────────────────────────────
-
-export { AgentConsole as CopilotPanel };
 
 export function readCopilotCollapsed(): boolean {
   if (typeof window === "undefined") return false;

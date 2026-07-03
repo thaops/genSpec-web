@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Drawing, Estimate, Sheet } from "@/lib/types";
 import {
-  FileText, Ruler, ClipboardList, BarChart3, Brain, History,
+  FileText, Ruler, Brain,
   Pencil, Trash2, Image, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,10 +30,7 @@ type NavIcon = React.ComponentType<{ className?: string }>;
 const NAV_ITEMS: { id: WorkspaceView; label: string; Icon: NavIcon }[] = [
   { id: "workbook",  label: "Workbook",       Icon: FileText      },
   { id: "drawing",   label: "Drawings",        Icon: Ruler         },
-  { id: "specs",     label: "Specifications",  Icon: ClipboardList },
-  { id: "report",    label: "Reports",         Icon: BarChart3     },
   { id: "insights",  label: "AI Insights",     Icon: Brain         },
-  { id: "history",   label: "History",         Icon: History       },
 ];
 
 const EXPANDABLE_SECTIONS = new Set<WorkspaceView>(["workbook", "drawing"]);

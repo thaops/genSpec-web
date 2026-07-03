@@ -18,7 +18,6 @@ import type { AgentHandle } from "@/components/estimate/AgentConsole";
 import WorkbookEditor, { type WorkbookDriver } from "@/components/estimate/WorkbookEditor";
 import { InsightsDashboard } from "@/components/estimate/InsightsDashboard";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
-import { takePendingSheets } from "@/lib/pendingSheets";
 import { contextEngine } from "@/lib/context/ContextEngine";
 import { buildGenerateTakeoffAction } from "@/lib/actions/AgentActions";
 import { ExplorerPanel } from "@/components/estimate/explorer/ExplorerPanel";
@@ -47,6 +46,7 @@ export default function EstimateEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeSheetId, setActiveSheetId] = useState<string>("");
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [renamingSheetId, setRenamingSheetId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
@@ -57,6 +57,7 @@ export default function EstimateEditorPage() {
     endCol: number;
   } | undefined>(undefined);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
+  const [saveState, setSaveState] = useState<"idle" | "dirty" | "saving" | "saved">("idle");
   const [viewMode, setViewMode] = useState<WorkspaceView>("workbook");
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [activeDrawingId, setActiveDrawingId] = useState<string | undefined>(undefined);
@@ -65,7 +66,7 @@ export default function EstimateEditorPage() {
   const [splitMode, setSplitMode] = useState(false);
   const [agentWidth, setAgentWidth] = useState(380);
   const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
-  const agentDrag = useRef({ active: false, startX: 0, startW: 0 });
+  const agentDrag = useRef({ active: false, startX: 0, startW: 0, curW: 0 });
   const copilotRef = useRef<AgentHandle>(null);
   const workbookDriverRef = useRef<WorkbookDriver | null>(null);
   const autoSentRef = useRef(false);
@@ -78,7 +79,7 @@ export default function EstimateEditorPage() {
 
   const onAgentResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    agentDrag.current = { active: true, startX: e.clientX, startW: agentWidth };
+    agentDrag.current = { active: true, startX: e.clientX, startW: agentWidth, curW: agentWidth };
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }, [agentWidth]);
@@ -88,6 +89,7 @@ export default function EstimateEditorPage() {
       if (!agentDrag.current.active) return;
       const dx = agentDrag.current.startX - e.clientX;
       const w = Math.max(280, Math.min(640, agentDrag.current.startW + dx));
+      agentDrag.current.curW = w;
       setAgentWidth(w);
     }
     function onUp() {
@@ -95,7 +97,7 @@ export default function EstimateEditorPage() {
       agentDrag.current.active = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      localStorage.setItem("genspec-agent-width", String(agentDrag.current.startW));
+      localStorage.setItem("genspec-agent-width", String(agentDrag.current.curW));
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -117,24 +119,16 @@ export default function EstimateEditorPage() {
       api.listDrawings(id).catch(() => [] as Drawing[]),
     ]).then(([fetched, fetchedDrawings]) => {
         if (!alive) return;
-        let e = fetched;
-
-        // Check for locally-parsed sheets (from Excel import before server sync)
-        const pending = takePendingSheets(e.id);
-        if (pending) {
-          // Inject parsed sheets immediately so the UI shows data right away
-          e = { ...e, sheets: pending.sheets };
-          // Sync to server in background — don't await, don't block UI
-          api.importExcel(e.id, pending.file).catch(() => {/* silent, user already sees data */});
-        }
-
+        const e = fetched;
         setEstimate(e);
         setDrawings(fetchedDrawings);
         if (fetchedDrawings.length > 0) {
           setActiveDrawingId(fetchedDrawings[0].id);
         }
         if (e.sheets && e.sheets.length > 0) {
-          setActiveSheetId(e.sheets[0].id);
+          const stored = localStorage.getItem(`genspec_active_sheet_${id}`);
+          const restored = stored && e.sheets.some((s) => s.id === stored) ? stored : e.sheets[0].id;
+          setActiveSheetId(restored);
         } else {
           setActiveSheetId("");
         }
@@ -158,6 +152,13 @@ export default function EstimateEditorPage() {
 
   // Sync sheet / selection → context engine
   useEffect(() => { contextEngine.onSheetChange(activeSheetId); }, [activeSheetId]);
+
+  // Remember active sheet per estimate
+  useEffect(() => {
+    if (activeSheetId) {
+      try { localStorage.setItem(`genspec_active_sheet_${id}`, activeSheetId); } catch { /* ignore */ }
+    }
+  }, [activeSheetId, id]);
   useEffect(() => { if (selectedRange) contextEngine.onSelectionChange(selectedRange); }, [selectedRange]);
 
   useEffect(() => {
@@ -193,16 +194,18 @@ export default function EstimateEditorPage() {
     setActiveSheetId((prev) => (prev === sheetId ? prev : sheetId));
   }, []);
 
-  async function apply(actions: Action[]) {
-    if (!estimate) return;
+  async function apply(actions: Action[]): Promise<boolean> {
+    if (!estimate) return false;
     try {
       const res = await api.applyActions(estimate.id, actions, "manual");
       setEstimate(res.estimate);
       if (res.warnings?.length) {
         toast.error(t("copilot.failed"), res.warnings.join(", "));
       }
+      return true;
     } catch (err) {
       toast.error(t("copilot.failed"), (err as ApiError).message);
+      return false;
     }
   }
 
@@ -218,6 +221,20 @@ export default function EstimateEditorPage() {
       toast.error(t("editor.exportFailed"), (err as ApiError).message);
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function onImportExcel(file: File) {
+    if (!estimate || importing) return;
+    if (!window.confirm(t("editor.importConfirm"))) return;
+    setImporting(true);
+    try {
+      const next = await api.importExcel(estimate.id, file);
+      applyEstimate(next);
+    } catch (err) {
+      toast.error(t("editor.importFailed"), (err as ApiError).message);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -273,8 +290,11 @@ export default function EstimateEditorPage() {
     setSelectedRange(range);
   }
 
-  function handleDataChange(updatedSheets: Sheet[]) {
-    apply([{ type: "set_sheets", sheets: updatedSheets }]);
+  async function handleDataChange(updatedSheets: Sheet[]) {
+    setSaveState("saving");
+    const ok = await apply([{ type: "set_sheets", sheets: updatedSheets }]);
+    setSaveState(ok ? "saved" : "dirty");
+    if (!ok) toast.error(t("editor.saveFailed"));
   }
 
   function handleConfirmSheetType(sheetId: string, sheetType: string) {
@@ -415,6 +435,7 @@ export default function EstimateEditorPage() {
               onActiveSheetChange={setActiveSheetId}
               onSelectionChange={handleSelectionChange}
               onDataChange={handleDataChange}
+              onSaveStateChange={setSaveState}
               findings={findings}
               reinitKey={workbookReinitKey}
               driverRef={workbookDriverRef}
@@ -456,6 +477,9 @@ export default function EstimateEditorPage() {
         onRename={onRename}
         onExport={onExport}
         exporting={exporting}
+        onImportExcel={onImportExcel}
+        importing={importing}
+        saveState={saveState}
         splitMode={splitMode}
         onSplitModeChange={setSplitMode}
       />

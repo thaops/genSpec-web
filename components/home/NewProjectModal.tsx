@@ -9,11 +9,12 @@ import { Cross, FileIcon, PaperclipIcon } from "@/components/ui/icons";
 interface Props {
   open: boolean;
   loading: boolean;
+  loadingLabel?: string;
   onClose: () => void;
   onSubmit: (name: string, file: File | null) => void;
 }
 
-export function NewProjectModal({ open, loading, onClose, onSubmit }: Props) {
+export function NewProjectModal({ open, loading, loadingLabel, onClose, onSubmit }: Props) {
   const { t } = useT();
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -129,7 +130,7 @@ export function NewProjectModal({ open, loading, onClose, onSubmit }: Props) {
               disabled={(!name.trim() && !file) || loading}
             >
               {loading ? <Spinner className="h-4 w-4" /> : null}
-              {loading ? t("home.creating") : t("home.create")}
+              {loading ? loadingLabel ?? t("home.creating") : t("home.create")}
             </Button>
           </div>
         </form>

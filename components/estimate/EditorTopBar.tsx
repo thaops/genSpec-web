@@ -5,11 +5,11 @@ import Link from "next/link";
 import type { Estimate } from "@/lib/types";
 import { cn, formatVnd } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
-import { Button } from "@/components/ui/Button";
+import { Button, Spinner } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
-import { LayoutPanelLeft } from "lucide-react";
+import { LayoutPanelLeft, Upload } from "lucide-react";
 import { NotificationBell } from "@/components/ui/NotificationCenter";
 
 interface Props {
@@ -17,6 +17,9 @@ interface Props {
   onRename: (name: string) => void;
   onExport: () => void;
   exporting: boolean;
+  onImportExcel?: (file: File) => void;
+  importing?: boolean;
+  saveState?: "idle" | "dirty" | "saving" | "saved";
   splitMode?: boolean;
   onSplitModeChange?: (v: boolean) => void;
 }
@@ -26,6 +29,9 @@ export function EditorTopBar({
   onRename,
   onExport,
   exporting,
+  onImportExcel,
+  importing = false,
+  saveState = "idle",
   splitMode,
   onSplitModeChange,
 }: Props) {
@@ -33,6 +39,7 @@ export function EditorTopBar({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(estimate.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -122,6 +129,48 @@ export function EditorTopBar({
           <LayoutPanelLeft className="h-3.5 w-3.5" />
           <span className="hidden md:inline">Split</span>
         </button>
+      )}
+
+      {/* Save-state indicator */}
+      {saveState === "dirty" && (
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-amber-400/80">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+          {t("editor.unsaved")}
+        </span>
+      )}
+      {saveState === "saving" && (
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500">
+          <Spinner className="h-3 w-3" />
+          {t("editor.saving")}
+        </span>
+      )}
+      {saveState === "saved" && (
+        <span className="shrink-0 text-xs text-zinc-500">{t("editor.saved")}</span>
+      )}
+
+      {onImportExcel && (
+        <>
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) onImportExcel(f);
+            }}
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => importFileRef.current?.click()}
+            loading={importing}
+            leftIcon={<Upload className="h-4 w-4" />}
+          >
+            {importing ? t("editor.importing") : t("editor.importExcel")}
+          </Button>
+        </>
       )}
 
       <Button

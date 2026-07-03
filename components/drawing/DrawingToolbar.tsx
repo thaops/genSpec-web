@@ -1,6 +1,6 @@
 "use client";
 
-import { MousePointer2, Hand, ZoomIn, Ruler, Hash, Square, Search, Layers, ArrowLeftRight, Sparkles } from "lucide-react";
+import { MousePointer2, Search, Sparkles } from "lucide-react";
 
 export type DrawingTool =
   | "pointer"
@@ -22,16 +22,11 @@ interface Tool {
   dividerAfter?: boolean;
 }
 
+// Only tools with real behavior are offered. Measure/count/area/layer/compare
+// return with the unified DrawingCanvas (M1) — re-add entries here when wired.
 const TOOLS: Tool[] = [
   { id: "pointer", Icon: MousePointer2,   label: "Pointer", shortcut: "V" },
-  { id: "pan",     Icon: Hand,            label: "Pan",     shortcut: "H" },
-  { id: "zoom",    Icon: ZoomIn,          label: "Zoom",    shortcut: "Z", dividerAfter: true },
-  { id: "measure", Icon: Ruler,           label: "Measure", shortcut: "M" },
-  { id: "count",   Icon: Hash,            label: "Count",   shortcut: "C" },
-  { id: "area",    Icon: Square,          label: "Area",    shortcut: "A", dividerAfter: true },
-  { id: "search",  Icon: Search,          label: "Search",  shortcut: "F" },
-  { id: "layer",   Icon: Layers,          label: "Layers",  shortcut: "L" },
-  { id: "compare", Icon: ArrowLeftRight,  label: "Compare", dividerAfter: true },
+  { id: "search",  Icon: Search,          label: "Search",  shortcut: "F", dividerAfter: true },
   { id: "ai",      Icon: Sparkles,        label: "AI Detect", shortcut: "⌘D" },
 ];
 

@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { setPendingTask, type TaskType } from "@/lib/pendingTask";
+import { useNewWorkspaceModal } from "@/components/AppShell";
 import type { EstimateListItem, OfficialFeedItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { X, Plus, Building2, Search, Ruler, BarChart3, ScanSearch, DollarSign, FileText, CheckCircle2 } from "lucide-react";
@@ -219,6 +220,7 @@ export default function HomePage() {
   const { t } = useT();
   const toast = useToast();
   const router = useRouter();
+  const openNewWorkspace = useNewWorkspaceModal();
 
   const [estimates, setEstimates] = useState<EstimateListItem[]>([]);
   const [feed, setFeed] = useState<OfficialFeedItem[]>([]);
@@ -391,7 +393,7 @@ export default function HomePage() {
               />
             </div>
             <button
-              onClick={createWorkspace}
+              onClick={openNewWorkspace}
               disabled={creating}
               className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-accent-600 px-4 text-[13px] font-medium text-white transition-colors hover:bg-accent-500 disabled:opacity-50"
             >
@@ -450,7 +452,7 @@ export default function HomePage() {
             </div>
 
             {estimates.length === 0 && (
-              <EmptyState onCreate={createWorkspace} />
+              <EmptyState onCreate={openNewWorkspace} />
             )}
 
             {estimates.length > 0 && filtered.length === 0 && (

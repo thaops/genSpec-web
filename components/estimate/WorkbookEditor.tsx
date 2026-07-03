@@ -31,6 +31,7 @@ interface Props {
     endCol: number;
   }) => void;
   onDataChange: (sheets: Sheet[]) => void;
+  onSaveStateChange?: (s: "dirty" | "saving" | "saved") => void;
   findings?: any[];
   reinitKey?: number;
   driverRef?: React.MutableRefObject<WorkbookDriver | null>;
@@ -62,6 +63,7 @@ export default function WorkbookEditor({
   onActiveSheetChange,
   onSelectionChange,
   onDataChange,
+  onSaveStateChange,
   findings = [],
   reinitKey = 0,
   driverRef,
@@ -77,8 +79,32 @@ export default function WorkbookEditor({
   // Track sheets shown in Univer for diff animation after AI reinit
   const lastSheetsRef = useRef<Sheet[]>([]);
   const dataDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pending debounced payload — flushed synchronously on unmount so edits aren't lost
+  const pendingSheetsRef = useRef<Sheet[] | null>(null);
   // True while the AI agent is driving edits — suppress self-persistence
   const drivingRef = useRef(false);
+  // Keep the latest onDataChange for the beforeunload flush
+  const onDataChangeRef = useRef(onDataChange);
+  useEffect(() => { onDataChangeRef.current = onDataChange; }, [onDataChange]);
+
+  // Flush pending debounced edits before the tab closes so they aren't lost;
+  // the browser prompt is only a safety net after the synchronous flush.
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!pendingSheetsRef.current || drivingRef.current) return;
+      const pending = pendingSheetsRef.current;
+      pendingSheetsRef.current = null;
+      if (dataDebounceRef.current) {
+        clearTimeout(dataDebounceRef.current);
+        dataDebounceRef.current = null;
+      }
+      onDataChangeRef.current(pending);
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
 
   // isDark can be explicitly passed (effect ordering fix: child effects run BEFORE
   // parent ThemeProvider updates html class, so reading classList here would be stale).
@@ -225,12 +251,19 @@ export default function WorkbookEditor({
       }
       lastSheetsRef.current = workbookData.sheets ?? [];
 
-      wb.onCommandExecuted(() => {
+      wb.onCommandExecuted((command: any) => {
         // Agent-driven writes are persisted once via the actions endpoint —
         // skip the editor's own save path to avoid double-posting.
         if (drivingRef.current) return;
         const cur = wb.getActiveSheet();
         if (cur) onActiveSheetChange(cur.getSheetId());
+
+        // Skip the expensive wb.save()+stringify for commands that can't
+        // mutate cell data (selection/scroll/hover spam while typing).
+        // CommandType.OPERATION === 1 (UI-only); mutations/commands fall through.
+        const cmdId: string = command?.id ?? "";
+        if (/selection|scroll|hover|active-operation|set-zoom/i.test(cmdId)) return;
+        if (typeof command?.type === "number" && command.type === 1) return;
 
         const raw = wb.save() as any;
         if (!raw?.sheets) return;
@@ -251,8 +284,11 @@ export default function WorkbookEditor({
         lastSheetsRef.current = updated; // track what's shown in Univer
 
         // Debounce rapid keystrokes — flush after 700ms of inactivity
+        onSaveStateChange?.("dirty");
+        pendingSheetsRef.current = updated;
         if (dataDebounceRef.current) clearTimeout(dataDebounceRef.current);
         dataDebounceRef.current = setTimeout(() => {
+          pendingSheetsRef.current = null;
           onDataChange(updated);
           dataDebounceRef.current = null;
         }, 700);
@@ -277,7 +313,20 @@ export default function WorkbookEditor({
       destroyed = true;
       observerRef.current?.disconnect();
       observerRef.current = null;
-      if (dataDebounceRef.current) clearTimeout(dataDebounceRef.current);
+      if (dataDebounceRef.current) {
+        clearTimeout(dataDebounceRef.current);
+        dataDebounceRef.current = null;
+      }
+      // Flush pending edits synchronously so they aren't silently lost.
+      // Skip while the agent is driving: the pending snapshot predates the
+      // AI's writes and would overwrite them with stale data (the drive
+      // persists once via the actions endpoint anyway).
+      if (pendingSheetsRef.current && !drivingRef.current) {
+        const pending = pendingSheetsRef.current;
+        pendingSheetsRef.current = null;
+        onDataChange(pending);
+      }
+      pendingSheetsRef.current = null;
       try { univerRef.current?.dispose(); } catch (_) { }
       univerRef.current = null;
       univerAPIRef.current = null;
@@ -297,6 +346,18 @@ export default function WorkbookEditor({
     };
     driverRef.current = {
       beginDrive: () => {
+        // Flush any user edits queued before the drive — persist them now so
+        // the snapshot (which predates the AI's writes) can never be flushed
+        // later and overwrite what the AI wrote.
+        if (dataDebounceRef.current) {
+          clearTimeout(dataDebounceRef.current);
+          dataDebounceRef.current = null;
+        }
+        if (pendingSheetsRef.current) {
+          const pending = pendingSheetsRef.current;
+          pendingSheetsRef.current = null;
+          onDataChange(pending);
+        }
         drivingRef.current = true;
       },
       endDrive: () => {

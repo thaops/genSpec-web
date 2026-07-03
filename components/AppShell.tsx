@@ -2,14 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import type { EstimateListItem } from "@/lib/types";
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
-import { parseExcelFile } from "@/lib/excelParser";
-import { setPendingSheets } from "@/lib/pendingSheets";
 import { Spinner } from "./ui/Button";
 import { useToast } from "./ui/Toast";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -20,6 +18,12 @@ import { LanguageToggle } from "./LanguageToggle";
 import { LogoutIcon } from "./ui/icons";
 import { Search, Home, FolderOpen, X, ClipboardList, Settings, Plus } from "lucide-react";
 
+
+/** Lets pages inside the shell open the shared New Workspace modal. */
+const NewWorkspaceModalContext = createContext<() => void>(() => {});
+export function useNewWorkspaceModal() {
+  return useContext(NewWorkspaceModalContext);
+}
 
 function Avatar({ name }: { name: string }) {
   const initials = name
@@ -45,6 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
 
   // Ctrl+K
@@ -79,9 +84,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (creating) return;
     setCreating(true);
     try {
-      const sheets = file ? await parseExcelFile(file) : null;
       const est = await api.createEstimate(name || t("home.defaultName"));
-      if (sheets && file) setPendingSheets({ estimateId: est.id, sheets, file });
+      if (file) {
+        // Backend import (ExcelJS) is the source of truth — await it so the
+        // editor loads the fully-styled workbook, never a style-less preview.
+        setImporting(true);
+        try {
+          await api.importExcel(est.id, file);
+        } catch (err) {
+          toast.error(t("home.importFailed"), (err as ApiError).message);
+        } finally {
+          setImporting(false);
+        }
+      }
       setModalOpen(false);
       router.push(`/estimate/${est.id}`);
     } catch (err) {
@@ -103,6 +118,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <NewProjectModal
         open={modalOpen}
         loading={creating}
+        loadingLabel={importing ? t("home.importing") : undefined}
         onClose={() => setModalOpen(false)}
         onSubmit={createProject}
       />
@@ -110,6 +126,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
         estimates={estimates}
+        onImport={() => setModalOpen(true)}
       />
 
       <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
@@ -265,7 +282,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
 
           {/* Page */}
-          <main className="flex-1 overflow-hidden">{children}</main>
+          <main className="flex-1 overflow-hidden">
+            <NewWorkspaceModalContext.Provider value={() => setModalOpen(true)}>
+              {children}
+            </NewWorkspaceModalContext.Provider>
+          </main>
         </div>
       </div>
     </>
