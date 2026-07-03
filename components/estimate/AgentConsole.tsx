@@ -87,6 +87,7 @@ export function AgentConsole({
   const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
   const [liveSteps, setLiveSteps] = useState<TimelineStep[]>([]);
   const [liveText, setLiveText] = useState("");
+  const [liveThinking, setLiveThinking] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [editPermission, setEditPermission] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -176,7 +177,7 @@ export function AgentConsole({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [thread, liveSteps, streaming, liveText]);
+  }, [thread, liveSteps, streaming, liveText, liveThinking]);
 
   // Cleanup abort and typewriter on unmount
   useEffect(() => () => {
@@ -207,11 +208,12 @@ export function AgentConsole({
       const fin = pendingFinalizeRef.current;
       pendingFinalizeRef.current = null;
       fin();
-    } else if (liveText || liveSteps.length) {
+    } else if (liveText || liveThinking || liveSteps.length) {
       setLiveText("");
+      setLiveThinking("");
       setLiveSteps([]);
     }
-  }, [streaming, liveText, liveSteps.length]);
+  }, [streaming, liveText, liveThinking, liveSteps.length]);
 
   // Check for pending task on mount — shows Task Card instead of auto-firing
   useEffect(() => {
@@ -283,6 +285,7 @@ export function AgentConsole({
     setThread(nextThread);
     setLiveSteps([]);
     setLiveText("");
+    setLiveThinking("");
     setStreaming(true);
     streamingRef.current = true;
     hasTokensRef.current = false;
@@ -303,6 +306,7 @@ export function AgentConsole({
             hasTokensRef.current = true;
             enqueueLiveText(t);
           },
+          onThinking: (t: string) => setLiveThinking((prev) => prev + t),
           onStep: (s) =>
             setLiveSteps((prev) => [
               ...prev,
@@ -340,6 +344,7 @@ export function AgentConsole({
               pendingFinalizeRef.current = () => {
                 setThread(nextFinalThread);
                 setLiveText("");
+                setLiveThinking("");
                 setLiveSteps([]);
                 saveConversation(nextFinalThread);
               };
@@ -351,6 +356,7 @@ export function AgentConsole({
               }
               queueRef.current = "";
               setLiveText("");
+              setLiveThinking("");
               setLiveSteps([]);
               api.applyActions(estimateRef.current.id, p.actions, "ai")
                 .then((res) => {
@@ -400,6 +406,7 @@ export function AgentConsole({
               }
               queueRef.current = "";
               setLiveText("");
+              setLiveThinking("");
               setLiveSteps([]);
             }
           },
@@ -419,6 +426,7 @@ export function AgentConsole({
             }
             queueRef.current = "";
             setLiveText("");
+            setLiveThinking("");
             setLiveSteps([]);
           },
         },
@@ -443,6 +451,7 @@ export function AgentConsole({
       saveConversation(finalThread);
       if (!pendingFinalizeRef.current && !typewriterRef.current && !queueRef.current) {
         setLiveText("");
+        setLiveThinking("");
         setLiveSteps([]);
       }
     }
@@ -693,6 +702,7 @@ export function AgentConsole({
             streaming={streaming}
             typedTail={typedTail}
             caretActive={caretActive}
+            liveThinking={liveThinking}
             liveSteps={liveSteps}
             historyLoaded={historyLoaded}
             editPermission={editPermission}
@@ -1038,6 +1048,7 @@ interface ChatPanelProps {
   streaming: boolean;
   typedTail: string;
   caretActive: boolean;
+  liveThinking: string;
   liveSteps: TimelineStep[];
   historyLoaded: boolean;
   editPermission: boolean;
@@ -1077,6 +1088,7 @@ function ChatPanel({
   streaming,
   typedTail,
   caretActive,
+  liveThinking,
   liveSteps,
   historyLoaded,
   editPermission,
@@ -1189,6 +1201,18 @@ function ChatPanel({
         {(streaming || !!typedTail) && (
           <div className="flex animate-slide-up justify-start">
             <div className="max-w-[88%] rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-2.5 text-sm text-zinc-200">
+              {/* Live reasoning (Gemini thought summaries) — dim block above the answer */}
+              {streaming && liveThinking && (
+                <details className="mb-2 rounded-lg bg-zinc-950/60 px-2.5 py-1.5" open={!typedTail}>
+                  <summary className="flex cursor-pointer items-center gap-1.5 text-[10px] font-medium text-zinc-500 select-none">
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-accent-400" />
+                    Đang suy nghĩ…
+                  </summary>
+                  <p className="mt-1 whitespace-pre-wrap text-[11px] italic leading-relaxed text-zinc-500">
+                    {liveThinking.length > 400 ? "…" + liveThinking.slice(-400) : liveThinking}
+                  </p>
+                </details>
+              )}
               {/* Step chips — only while actively streaming, before first token */}
               {streaming && !typedTail && liveSteps.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1">

@@ -129,6 +129,7 @@ export interface CopilotStreamHandlers {
   onProposal: (p: CopilotProposal) => void;
   onError: (message: string) => void;
   onToken?: (text: string) => void;
+  onThinking?: (text: string) => void;
   signal?: AbortSignal;
   editPermission?: boolean;
 }
@@ -156,6 +157,8 @@ function dispatchFrame(frame: string, handlers: CopilotStreamHandlers): void {
   }
   if (event === "token") {
     handlers.onToken?.((parsed as { text?: string })?.text ?? "");
+  } else if (event === "thinking") {
+    handlers.onThinking?.((parsed as { text?: string })?.text ?? "");
   } else if (event === "step") {
     handlers.onStep(parsed as CopilotStep);
   } else if (event === "proposal") {
