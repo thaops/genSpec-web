@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Action, AppliedActionsRecord, Drawing, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
+import type { Action, AppliedActionsRecord, BoqTraceToken, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
 import { api, ApiError, exportTHDT, triggerDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -39,6 +39,34 @@ const OBJECT_TYPE_VI: Partial<Record<DrawingObjectType, string>> = {
   footing: "Móng", pile: "Cọc", roof: "Mái",
 };
 
+// ---------- BOQ ↔ drawing traceability (M3-A) ----------
+// The AI writes structured tokens into the "Ghi chú" column of takeoff rows:
+//   [obj:<drawingObjectId>] (per-object) | [nhóm:<type>] (full-takeoff group)
+const OBJ_TOKEN_RE = /\[obj:([^\]\s]+)\]/i;
+const GROUP_TOKEN_RE = /\[nh[óo]m:([^\]\s]+)\]/i;
+const QTY_SHEET_NAME = "Khối lượng";
+
+/** Concatenated text of one cellData row (Univer format: row → col → {v}). */
+function rowText(cols: Record<string, any> | undefined): string {
+  if (!cols) return "";
+  return Object.values(cols).map((c: any) => String(c?.v ?? "")).join(" | ");
+}
+
+function parseTraceToken(text: string): BoqTraceToken | null {
+  const obj = OBJ_TOKEN_RE.exec(text);
+  if (obj) return { objectId: obj[1] };
+  const grp = GROUP_TOKEN_RE.exec(text);
+  if (grp) return { groupType: grp[1].toLowerCase() };
+  return null;
+}
+
+function findQuantitySheet(sheets: Sheet[]): Sheet | undefined {
+  return (
+    sheets.find((s) => s.name === QTY_SHEET_NAME) ??
+    sheets.find((s) => s.name.toLowerCase().includes(QTY_SHEET_NAME.toLowerCase()))
+  );
+}
+
 export default function EstimateEditorPage() {
   const { t } = useT();
   const toast = useToast();
@@ -69,6 +97,8 @@ export default function EstimateEditorPage() {
   const [selectedDrawingObject, setSelectedDrawingObject] = useState<DrawingObject | undefined>(undefined);
   const [drawingViewport, setDrawingViewport] = useState<DrawingViewportInfo | undefined>(undefined);
   const [splitMode, setSplitMode] = useState(false);
+  // BOQ → drawing focus request (token parsed from the selected workbook row)
+  const [drawingFocus, setDrawingFocus] = useState<DrawingFocusRequest | null>(null);
   const [agentWidth, setAgentWidth] = useState(380);
   const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
   // Cells the AI just edited — key `${sheetId}:${CELL}` (uppercase A1)
@@ -398,6 +428,66 @@ export default function EstimateEditorPage() {
     setFindings(newFindings);
   }
 
+  // Drawing → BOQ: locate the takeoff row traced to this object and focus it.
+  // Match priority: [obj:<id>] token → [nhóm:<type>] token → Vietnamese type label.
+  function handleJumpToBoq(obj: DrawingObject) {
+    const sheet = findQuantitySheet(estimate?.sheets ?? []);
+    if (!sheet) {
+      toast.error("Chưa có sheet Khối lượng", "Chạy ⚡ Bóc toàn bộ hoặc Generate Takeoff trước.");
+      return;
+    }
+    const cellData = (sheet.data?.cellData ?? {}) as Record<string, Record<string, any>>;
+    let exactRow: number | null = null;
+    let groupRow: number | null = null;
+    let nameRow: number | null = null;
+    const viLabel = OBJECT_TYPE_VI[obj.type]?.toLowerCase();
+    for (const [rowStr, cols] of Object.entries(cellData)) {
+      const text = rowText(cols);
+      if (text.includes(`[obj:${obj.id}]`) || (obj.stableId && text.includes(`[obj:${obj.stableId}]`))) {
+        exactRow = Number(rowStr);
+        break;
+      }
+      if (groupRow == null && parseTraceToken(text)?.groupType === obj.type) groupRow = Number(rowStr);
+      if (nameRow == null && viLabel && text.toLowerCase().includes(viLabel)) nameRow = Number(rowStr);
+    }
+    const row = exactRow ?? groupRow ?? nameRow;
+    if (row == null) {
+      toast.error("Chưa có dòng khối lượng cho đối tượng này");
+      return;
+    }
+    // Keep split if already split (drawing stays visible); otherwise show workbook
+    if (!splitMode) setViewMode("workbook");
+    setActiveSheetId(sheet.id);
+    focusWorkbookCell(sheet.id, row);
+  }
+
+  // Focus + flash a workbook cell, retrying while Univer mounts/initializes.
+  function focusWorkbookCell(sheetId: string, row: number) {
+    let attempts = 0;
+    const tryFocus = () => {
+      const d = workbookDriverRef.current;
+      if (d?.focusCell(sheetId, row, 0)) {
+        d.flashCell(sheetId, row, 0);
+        return;
+      }
+      if (++attempts < 20) setTimeout(tryFocus, 200);
+    };
+    setTimeout(tryFocus, 100);
+  }
+
+  // BOQ → drawing: open split view and pan the canvas to the traced object
+  function handleTraceToDrawing(token: BoqTraceToken) {
+    if (drawings.length === 0) {
+      toast.error("Chưa có bản vẽ để hiển thị");
+      return;
+    }
+    const targetId = activeDrawingId ?? drawings[0].id;
+    setActiveDrawingId(targetId);
+    setViewMode("drawing");
+    setSplitMode(true);
+    setDrawingFocus({ objectId: token.objectId, groupType: token.groupType, nonce: Date.now() });
+  }
+
   function handleDrawingObjectSelect(obj: DrawingObject) {
     setSelectedDrawingObject(obj);
     // If obj has a BOQ ref, highlight that row
@@ -492,11 +582,22 @@ export default function EstimateEditorPage() {
 
   const sheetsList = estimate.sheets ?? [];
 
+  // Workbook is visible in workbook mode AND as the left pane of split view
+  const showWorkbookPane = viewMode === "workbook" || (viewMode === "drawing" && splitMode);
+  const explainVisible = !!explainEntry && explainDismissedKey !== singleCellKey;
+  // Trace chip: single selected cell whose row carries a [obj:]/[nhóm:] token
+  const traceToken = (() => {
+    if (!showWorkbookPane || !activeSheetId || !selectedRange) return null;
+    if (selectedRange.startRow !== selectedRange.endRow || selectedRange.startCol !== selectedRange.endCol) return null;
+    const sheet = sheetsList.find((s) => s.id === activeSheetId);
+    return parseTraceToken(rowText(sheet?.data?.cellData?.[selectedRange.startRow]));
+  })();
+
   const workbookContent = (
     <div className="min-w-0 flex-1 overflow-hidden relative bg-zinc-950 flex flex-col h-full">
       {viewMode === "insights" ? (
         <InsightsDashboard estimate={estimate} />
-      ) : viewMode === "workbook" && activeSheetId ? (
+      ) : showWorkbookPane && activeSheetId ? (
         <>
           {(() => {
             const currentSheet = sheetsList.find((s) => s.id === activeSheetId);
@@ -550,16 +651,27 @@ export default function EstimateEditorPage() {
               reinitKey={workbookReinitKey}
               driverRef={workbookDriverRef}
             />
-            {explainEntry && explainDismissedKey !== singleCellKey && (
+            {explainVisible && explainEntry && (
               <CellExplainPopover
                 entry={explainEntry}
                 onUndo={() => copilotRef.current?.undoPatch(explainEntry.patchId)}
                 onClose={() => setExplainDismissedKey(singleCellKey)}
               />
             )}
+            {traceToken && (
+              <button
+                type="button"
+                onClick={() => handleTraceToDrawing(traceToken)}
+                title="Mở bản vẽ và pan tới đối tượng liên quan dòng này"
+                className="absolute top-3 z-30 flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900/95 px-2.5 py-1 text-[11px] text-zinc-200 shadow-lg backdrop-blur transition-colors hover:border-blue-500 hover:text-blue-300"
+                style={{ right: explainVisible ? "19.5rem" : "0.75rem" }}
+              >
+                📐 Xem trên bản vẽ
+              </button>
+            )}
           </div>
         </>
-      ) : viewMode === "workbook" ? (
+      ) : showWorkbookPane ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 space-y-3">
           <BarChart3 className="h-10 w-10 text-zinc-700" />
           <p className="text-sm">Create a new sheet or select an existing one to begin</p>
@@ -580,6 +692,12 @@ export default function EstimateEditorPage() {
       onDrawingsChange={setDrawings}
       onObjectsLoaded={handleObjectsLoaded}
       onFullTakeoff={handleFullTakeoff}
+      onJumpToBoq={handleJumpToBoq}
+      externalFocus={drawingFocus}
+      onAskAI={(summaryText) => {
+        setCollapsed(false);
+        setTimeout(() => copilotRef.current?.send(summaryText, []), 300);
+      }}
       onViewportChange={(info) => {
         setDrawingViewport(info);
         setActiveDrawingId(info.drawingId);

@@ -15,7 +15,8 @@ import { useTheme } from "@/lib/theme";
 export interface WorkbookDriver {
   beginDrive: () => void;
   endDrive: () => void;
-  focusCell: (sheetId: string, row: number, col: number) => void;
+  /** Returns true when the cell was actually focused (Univer ready + sheet found). */
+  focusCell: (sheetId: string, row: number, col: number) => boolean;
   writeCell: (sheetId: string, row: number, col: number, value: string | number) => void;
   flashCell: (sheetId: string, row: number, col: number) => void;
 }
@@ -376,8 +377,13 @@ export default function WorkbookEditor({
       },
       focusCell: (sheetId, row, col) => {
         try {
-          getSheet(sheetId)?.getRange?.(row, col, 1, 1)?.activate?.();
-        } catch (_) {}
+          const range = getSheet(sheetId)?.getRange?.(row, col, 1, 1);
+          if (!range) return false;
+          range.activate?.();
+          return true;
+        } catch (_) {
+          return false;
+        }
       },
       writeCell: (sheetId, row, col, value) => {
         try {

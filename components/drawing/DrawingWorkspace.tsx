@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Drawing, DrawingCalibration, DrawingObject, DrawingScene } from "@/lib/types";
+import type { Drawing, DrawingCalibration, DrawingFocusRequest, DrawingObject, DrawingScene } from "@/lib/types";
 import { api, API_URL } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 import { DxfViewer } from "./DxfViewer";
@@ -10,8 +10,10 @@ import { DrawingCanvas } from "./DrawingCanvas";
 import { DrawingUpload } from "./DrawingUpload";
 import { ObjectInspector } from "./ObjectInspector";
 import { ReviewQueue, type ReviewStates, type ReviewStatus } from "./ReviewQueue";
+import { RevisionPanel } from "./RevisionPanel";
 import { DrawingToolbar, type DrawingTool } from "./DrawingToolbar";
 import { Spinner } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { buildFullTakeoffAction } from "@/lib/actions/AgentActions";
 import { summarizeObjects } from "@/lib/drawing/objectMeasure";
@@ -77,6 +79,12 @@ interface DrawingWorkspaceProps {
   onObjectsLoaded?: (objects: DrawingObject[]) => void;
   // "⚡ Bóc toàn bộ": workspace builds the structured prompt, page sends it
   onFullTakeoff?: (prompt: string) => void;
+  // Traceability: drawing → BOQ jump requested from the Object Inspector
+  onJumpToBoq?: (obj: DrawingObject) => void;
+  // Traceability: BOQ → drawing focus request (token parsed from workbook row)
+  externalFocus?: DrawingFocusRequest | null;
+  // Revision compare: forward the delta summary to the copilot
+  onAskAI?: (summaryText: string) => void;
 }
 
 export function DrawingWorkspace({
@@ -90,7 +98,11 @@ export function DrawingWorkspace({
   onViewportChange,
   onObjectsLoaded,
   onFullTakeoff,
+  onJumpToBoq,
+  externalFocus,
+  onAskAI,
 }: DrawingWorkspaceProps) {
+  const toast = useToast();
   const [objects, setObjects] = useState<DrawingObject[]>([]);
   const [selectedObject, setSelectedObject] = useState<DrawingObject | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -106,6 +118,7 @@ export function DrawingWorkspace({
   // Review Queue: per-object approve/reject persisted per drawing
   const [reviewStates, setReviewStates] = useState<ReviewStates>({});
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [revisionOpen, setRevisionOpen] = useState(false);
   const [focusObjectId, setFocusObjectId] = useState<string | undefined>(undefined);
   // Full takeoff flow
   const [fullTakeoffRunning, setFullTakeoffRunning] = useState(false);
@@ -200,6 +213,31 @@ export function DrawingWorkspace({
       setReviewStates({});
     }
   }, [activeDrawingId]);
+
+  // BOQ → drawing: resolve the external focus request once objects are loaded.
+  // Matches [obj:<id>] by id/stableId, [nhóm:<type>] by first object of that type.
+  const handledFocusNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!externalFocus || loadingObjects) return;
+    if (handledFocusNonce.current === externalFocus.nonce) return;
+    handledFocusNonce.current = externalFocus.nonce;
+    const obj = externalFocus.objectId
+      ? objects.find((o) => o.id === externalFocus.objectId || o.stableId === externalFocus.objectId)
+      : externalFocus.groupType
+        ? objects.find((o) => o.type === externalFocus.groupType)
+        : undefined;
+    if (!obj) {
+      toast.error(
+        "Không tìm thấy đối tượng trên bản vẽ",
+        "Đối tượng có thể đã bị xoá hoặc thuộc bản vẽ khác."
+      );
+      return;
+    }
+    setSelectedObject(obj);
+    setFocusObjectId(obj.id);
+    setInspectorOpen(true);
+    onObjectSelect?.(obj);
+  }, [externalFocus, loadingObjects, objects]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleReviewStateChange(objectId: string, status: ReviewStatus) {
     setReviewStates((prev) => {
@@ -434,6 +472,16 @@ export function DrawingWorkspace({
               Duyệt{pendingReviewCount > 0 ? ` (${pendingReviewCount} chưa xem)` : ""}
             </button>
             <button
+              onClick={() => setRevisionOpen((v) => !v)}
+              disabled={drawings.filter((d) => d.id !== activeDrawingId && (!d.parseStatus || d.parseStatus === "ready")).length === 0}
+              title="So sánh với bản vẽ khác — định lượng thay đổi"
+              className={`px-2 py-1 rounded text-[11px] transition-colors disabled:opacity-50 ${
+                revisionOpen ? "bg-blue-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+              }`}
+            >
+              So sánh
+            </button>
+            <button
               onClick={() => setInspectorOpen(!inspectorOpen)}
               className={`px-2 py-1 rounded text-[11px] transition-colors ${
                 inspectorOpen ? "bg-blue-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
@@ -525,6 +573,31 @@ export function DrawingWorkspace({
         </div>
       )}
 
+      {/* Revision compare panel */}
+      {revisionOpen && activeDrawing && (
+        <div className="w-72 shrink-0 border-l border-zinc-800 bg-zinc-900 flex flex-col overflow-hidden">
+          <RevisionPanel
+            estimateId={estimateId}
+            drawings={drawings}
+            activeDrawingId={activeDrawing.id}
+            calibration={calibration}
+            onClose={() => setRevisionOpen(false)}
+            onFocusObject={(objectId, drawingId) => {
+              // Only objects on the currently open drawing can be focused;
+              // "removed" items live on the old drawing — skip those.
+              if (drawingId !== activeDrawing.id) return;
+              const obj = objects.find((o) => o.id === objectId);
+              if (obj) {
+                setSelectedObject(obj);
+                setFocusObjectId(obj.id);
+                onObjectSelect?.(obj);
+              }
+            }}
+            onAskAI={onAskAI}
+          />
+        </div>
+      )}
+
       {/* Object Inspector panel */}
       {inspectorOpen && (
         <div className="w-56 shrink-0 border-l border-zinc-800 bg-zinc-900 flex flex-col overflow-hidden">
@@ -532,6 +605,7 @@ export function DrawingWorkspace({
             object={selectedObject}
             onClose={() => setInspectorOpen(false)}
             onGenerateTakeoff={handleGenerateTakeoff}
+            onJumpToBoq={onJumpToBoq}
           />
         </div>
       )}

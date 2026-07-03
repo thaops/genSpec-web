@@ -100,7 +100,8 @@ interface ObjectInspectorProps {
   revisions?: DrawingRevision[];
   onClose?: () => void;
   onGenerateTakeoff?: (obj: DrawingObject) => void;
-  onJumpToBoq?: (boqRef: string) => void;
+  // Jump to the takeoff row traced to this object (token/boqRef/type-based lookup upstream)
+  onJumpToBoq?: (obj: DrawingObject) => void;
 }
 
 export function ObjectInspector({
@@ -262,7 +263,7 @@ export function ObjectInspector({
                   <div className="text-xs font-mono text-emerald-300">{object.boqRef}</div>
                 </div>
                 <button
-                  onClick={() => onJumpToBoq?.(object.boqRef!)}
+                  onClick={() => onJumpToBoq?.(object)}
                   className="w-full px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
                 >
                   → Nhảy tới BOQ row
@@ -271,6 +272,14 @@ export function ObjectInspector({
             ) : (
               <div className="text-center py-4 space-y-2">
                 <p className="text-xs text-zinc-600">Chưa liên kết BOQ</p>
+                {onJumpToBoq && (
+                  <button
+                    onClick={() => onJumpToBoq(object)}
+                    className="w-full px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
+                  >
+                    → Nhảy tới BOQ
+                  </button>
+                )}
                 <button
                   onClick={() => onGenerateTakeoff?.(object)}
                   className="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs transition-colors"

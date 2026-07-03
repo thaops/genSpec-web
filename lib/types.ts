@@ -1048,6 +1048,23 @@ export interface AiContext {
   capturedAt?: string;
 }
 
+// ---------- BOQ ↔ Drawing traceability (M3-A) ----------
+// Structured token the AI writes into the "Ghi chú" column of takeoff rows:
+//   [obj:<drawingObjectId>]   — row generated from one specific object
+//   [nhóm:<DrawingObjectType>] — row generated from a full-takeoff type group
+export interface BoqTraceToken {
+  objectId?: string;
+  groupType?: string;
+}
+
+// Request to focus/pan the drawing canvas onto an object (BOQ → drawing jump).
+// nonce retriggers the focus even when the target is unchanged.
+export interface DrawingFocusRequest {
+  objectId?: string;
+  groupType?: string;
+  nonce: number;
+}
+
 // ---------- AI Knowledge Graph ----------
 // Unified graph that AI reads — connects all domain entities.
 // Built incrementally as data arrives, never recomputed from scratch.
@@ -1124,4 +1141,27 @@ export interface AgentDefinition {
   visibleInToolbar: boolean;
   shortcut?: string;
   category: "analysis" | "generation" | "comparison" | "explanation" | "optimization";
+}
+
+// ---------- Drawing Revision Compare V2 (M3-B) ----------
+// Contract: POST /estimates/:id/drawings/:drawingId/compare { againstDrawingId }
+// drawingId = current (new) drawing; againstDrawingId = base (old) drawing.
+// Matching on BE: exact stableId first, fallback same type + bbox IoU > 0.7.
+
+export interface DrawingDiffChangedPair {
+  before: DrawingObject; // object in base (old) drawing
+  after: DrawingObject;  // object in current (new) drawing
+  changedFields: string[]; // property keys; includes "boundingBox" when moved/resized
+  iou: number;
+  matchedBy: "stableId" | "iou";
+}
+
+export interface DrawingDiff {
+  drawingId: string;        // current (new)
+  againstDrawingId: string; // base (old)
+  added: DrawingObject[];   // in current, unmatched in base
+  removed: DrawingObject[]; // in base, unmatched in current
+  changed: DrawingDiffChangedPair[];
+  unchangedCount: number;
+  summary: { addedCount: number; removedCount: number; changedCount: number };
 }

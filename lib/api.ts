@@ -549,3 +549,17 @@ export function importPrices(
 export function exportTHDT(id: string): Promise<Blob> {
   return downloadBlob(`/estimates/${id}/export-thdt`);
 }
+
+// ---------- Drawing Revision Compare V2 (M3-B) ----------
+// Standalone (kept out of the `api` object so this file stays append-only).
+// Compares `drawingId` (current/new) against `againstDrawingId` (base/old).
+export function compareDrawingsV2(
+  estimateId: string,
+  drawingId: string,
+  againstDrawingId: string
+): Promise<import("./types").DrawingDiff> {
+  return request<import("./types").DrawingDiff>(
+    `/estimates/${estimateId}/drawings/${drawingId}/compare`,
+    { method: "POST", body: { againstDrawingId } }
+  );
+}

@@ -49,6 +49,11 @@ export function buildAction(payload: AgentActionPayload, ctx?: AiContext): strin
       if (payload.drawingId) lines.push(`DrawingId: ${payload.drawingId}`);
       if (payload.objectId) lines.push(`ObjectId: ${payload.objectId}`);
       if (payload.pageNumber != null) lines.push(`Page: ${payload.pageNumber}`);
+      if (payload.objectId) {
+        lines.push(
+          `Truy vết: cột/field Ghi chú của MỖI dòng khối lượng tạo ra PHẢI chứa token [obj:${payload.objectId}] (giữ nguyên dấu ngoặc vuông).`
+        );
+      }
       break;
     }
     case "review_workbook": {
@@ -133,7 +138,7 @@ export function buildFullTakeoffAction(
   const unit = calibration?.unitLabel ?? "đv";
 
   const table = summary.map((g) =>
-    `| ${g.label} | ${g.count} | ${formatMeasure(g.totalLength)} | ${formatMeasure(g.totalArea)} | ${g.layers.join(", ") || "—"} | ${Math.round(g.avgConfidence * 100)}% |`
+    `| ${g.label} | [nhóm:${g.type}] | ${g.count} | ${formatMeasure(g.totalLength)} | ${formatMeasure(g.totalArea)} | ${g.layers.join(", ") || "—"} | ${Math.round(g.avgConfidence * 100)}% |`
   );
 
   return [
@@ -145,14 +150,15 @@ export function buildFullTakeoffAction(
     calLine,
     ``,
     `Bảng nhóm đối tượng:`,
-    `| Loại | Số lượng | Tổng chiều dài (${unit}) | Tổng diện tích (${unit}²) | Layer | Độ tin cậy TB |`,
-    `|---|---|---|---|---|---|`,
+    `| Loại | Token | Số lượng | Tổng chiều dài (${unit}) | Tổng diện tích (${unit}²) | Layer | Độ tin cậy TB |`,
+    `|---|---|---|---|---|---|---|`,
     ...table,
     ``,
     `Yêu cầu:`,
     `1. Tạo bảng bóc khối lượng đầy đủ vào sheet "Khối lượng" theo mẫu cột: STT, Mã hiệu định mức, Tên công tác, Đơn vị, Khối lượng, Ghi chú.`,
     `2. Mỗi dòng ghi rõ (cột Ghi chú) suy luận từ nhóm đối tượng nào trong bảng trên.`,
     `3. KHÔNG bịa kích thước không có trong dữ liệu. Nếu thiếu chiều cao tầng, dùng giả định 3.3m và GHI RÕ trong Ghi chú đây là giả định.`,
+    `4. TRUY VẾT (BẮT BUỘC): cột Ghi chú của MỖI dòng phải chứa đúng token truy vết của nhóm nguồn (cột Token ở bảng trên, vd [nhóm:wall]). Giữ nguyên dấu ngoặc vuông và chữ thường, KHÔNG dịch token.`,
   ].join("\n");
 }
 
