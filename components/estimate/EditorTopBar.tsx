@@ -9,13 +9,14 @@ import { Button, Spinner } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
-import { LayoutPanelLeft, Upload } from "lucide-react";
+import { ChevronDown, LayoutPanelLeft, Upload } from "lucide-react";
 import { NotificationBell } from "@/components/ui/NotificationCenter";
 
 interface Props {
   estimate: Estimate;
   onRename: (name: string) => void;
   onExport: () => void;
+  onExportTHDT?: () => void;
   exporting: boolean;
   onImportExcel?: (file: File) => void;
   importing?: boolean;
@@ -28,6 +29,7 @@ export function EditorTopBar({
   estimate,
   onRename,
   onExport,
+  onExportTHDT,
   exporting,
   onImportExcel,
   importing = false,
@@ -38,8 +40,21 @@ export function EditorTopBar({
   const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(estimate.name);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!exportMenuRef.current?.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [exportMenuOpen]);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -173,15 +188,45 @@ export function EditorTopBar({
         </>
       )}
 
-      <Button
-        size="sm"
-        variant="secondary"
-        onClick={onExport}
-        loading={exporting}
-        leftIcon={<DownloadIcon className="h-4 w-4" />}
-      >
-        {exporting ? t("editor.exporting") : t("editor.export")}
-      </Button>
+      <div ref={exportMenuRef} className="relative">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            if (onExportTHDT) setExportMenuOpen((v) => !v);
+            else onExport();
+          }}
+          loading={exporting}
+          leftIcon={<DownloadIcon className="h-4 w-4" />}
+        >
+          {exporting ? t("editor.exporting") : t("editor.export")}
+          {onExportTHDT && <ChevronDown className="ml-1 h-3.5 w-3.5" />}
+        </Button>
+        {exportMenuOpen && onExportTHDT && (
+          <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 py-1 shadow-xl">
+            <button
+              type="button"
+              onClick={() => {
+                setExportMenuOpen(false);
+                onExport();
+              }}
+              className="block w-full px-3 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+            >
+              Xuất F1
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setExportMenuOpen(false);
+                onExportTHDT();
+              }}
+              className="block w-full px-3 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+            >
+              Xuất THDT
+            </button>
+          </div>
+        )}
+      </div>
 
       <NotificationBell />
       <ThemeToggle />

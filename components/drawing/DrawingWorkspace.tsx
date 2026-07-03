@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Drawing, DrawingObject } from "@/lib/types";
+import type { Drawing, DrawingCalibration, DrawingObject, DrawingScene } from "@/lib/types";
 import { api, API_URL } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 import { DxfViewer } from "./DxfViewer";
 import { DwgCanvasViewer } from "./DwgCanvasViewer";
+import { DrawingCanvas } from "./DrawingCanvas";
 import { DrawingUpload } from "./DrawingUpload";
 import { ObjectInspector } from "./ObjectInspector";
+import { ReviewQueue, type ReviewStates, type ReviewStatus } from "./ReviewQueue";
 import { DrawingToolbar, type DrawingTool } from "./DrawingToolbar";
 import { Spinner } from "@/components/ui/Button";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
-import { AlertTriangle, Ruler, Sparkles } from "lucide-react";
+import { buildFullTakeoffAction } from "@/lib/actions/AgentActions";
+import { summarizeObjects } from "@/lib/drawing/objectMeasure";
+import { AlertTriangle, Ruler, Sparkles, Zap } from "lucide-react";
 
 const PARSE_STATUS_LABELS: Record<string, string> = {
   queued:     "Đang xếp hàng xử lý...",
@@ -71,6 +75,8 @@ interface DrawingWorkspaceProps {
   onViewportChange?: (info: DrawingViewportInfo) => void;
   // Called once when a drawing first loads objects (auto-detection complete)
   onObjectsLoaded?: (objects: DrawingObject[]) => void;
+  // "⚡ Bóc toàn bộ": workspace builds the structured prompt, page sends it
+  onFullTakeoff?: (prompt: string) => void;
 }
 
 export function DrawingWorkspace({
@@ -83,6 +89,7 @@ export function DrawingWorkspace({
   onDrawingsChange,
   onViewportChange,
   onObjectsLoaded,
+  onFullTakeoff,
 }: DrawingWorkspaceProps) {
   const [objects, setObjects] = useState<DrawingObject[]>([]);
   const [selectedObject, setSelectedObject] = useState<DrawingObject | null>(null);
@@ -91,6 +98,18 @@ export function DrawingWorkspace({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<DrawingTool>("pointer");
   const [viewport, setViewport] = useState({ page: 1, scale: 1.2, scrollX: 0, scrollY: 0 });
+  // Unified vector scene (M1) — null while loading / after 404 fallback
+  const [scene, setScene] = useState<DrawingScene | null>(null);
+  const [sceneStatus, setSceneStatus] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false);
+  const [calibration, setCalibration] = useState<DrawingCalibration | null>(null);
+  // Review Queue: per-object approve/reject persisted per drawing
+  const [reviewStates, setReviewStates] = useState<ReviewStates>({});
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [focusObjectId, setFocusObjectId] = useState<string | undefined>(undefined);
+  // Full takeoff flow
+  const [fullTakeoffRunning, setFullTakeoffRunning] = useState(false);
+  const [calibrationPromptKey, setCalibrationPromptKey] = useState(0);
   // Track drawings already announced to avoid duplicate notifications
   const announcedDrawings = useRef<Set<string>>(new Set());
 
@@ -133,6 +152,76 @@ export function DrawingWorkspace({
       .finally(() => setLoadingObjects(false));
   }, [estimateId, activeDrawingId, activeDrawing?.parseStatus]);
 
+  // Load unified vector scene for dxf/dwg (M1). 404 / error → legacy fallback.
+  useEffect(() => {
+    setScene(null);
+    setLayerPanelOpen(false);
+    const drawing = drawings.find((d) => d.id === activeDrawingId);
+    const isVector = drawing && (drawing.type === "dxf" || drawing.type === "dwg");
+    const ready = !drawing?.parseStatus || drawing?.parseStatus === "ready";
+    if (!activeDrawingId || !isVector || !ready) {
+      setSceneStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setSceneStatus("loading");
+    api.getDrawingScene(estimateId, activeDrawingId)
+      .then((s) => {
+        if (cancelled) return;
+        setScene(s);
+        setSceneStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setSceneStatus("fallback");
+      });
+    return () => { cancelled = true; };
+  }, [estimateId, activeDrawingId, activeDrawing?.parseStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Per-drawing calibration persisted in localStorage
+  useEffect(() => {
+    if (!activeDrawingId) return;
+    try {
+      const raw = localStorage.getItem(`genspec_drawing_cal_${activeDrawingId}`);
+      setCalibration(raw ? (JSON.parse(raw) as DrawingCalibration) : null);
+    } catch {
+      setCalibration(null);
+    }
+  }, [activeDrawingId]);
+
+  // Per-drawing review states persisted in localStorage
+  useEffect(() => {
+    setReviewOpen(false);
+    setFocusObjectId(undefined);
+    if (!activeDrawingId) { setReviewStates({}); return; }
+    try {
+      const raw = localStorage.getItem(`genspec_obj_review_${activeDrawingId}`);
+      setReviewStates(raw ? (JSON.parse(raw) as ReviewStates) : {});
+    } catch {
+      setReviewStates({});
+    }
+  }, [activeDrawingId]);
+
+  function handleReviewStateChange(objectId: string, status: ReviewStatus) {
+    setReviewStates((prev) => {
+      const next = { ...prev, [objectId]: status };
+      if (activeDrawingId) {
+        try {
+          localStorage.setItem(`genspec_obj_review_${activeDrawingId}`, JSON.stringify(next));
+        } catch { /* quota */ }
+      }
+      return next;
+    });
+  }
+
+  function handleCalibrated(cal: DrawingCalibration) {
+    setCalibration(cal);
+    if (activeDrawingId) {
+      try {
+        localStorage.setItem(`genspec_drawing_cal_${activeDrawingId}`, JSON.stringify(cal));
+      } catch { /* quota */ }
+    }
+  }
+
   // Notify parent when viewport changes
   useEffect(() => {
     if (!activeDrawingId) return;
@@ -152,8 +241,8 @@ export function DrawingWorkspace({
     onObjectSelect?.(obj);
   }
 
-  async function handleDetect() {
-    if (!activeDrawingId) return;
+  async function handleDetect(): Promise<DrawingObject[]> {
+    if (!activeDrawingId) return [];
     setDetecting(true);
     const job = addJob({ id: crypto.randomUUID(), type: "ai_detect", status: "processing", progress: 0, message: "Đang phân tích bản vẽ..." });
     try {
@@ -166,10 +255,46 @@ export function DrawingWorkspace({
       }
       setObjects(objs);
       updateJob(job.id, { status: "done", progress: 100, message: `Tìm thấy ${objs.length} đối tượng` });
+      return objs;
     } catch {
       updateJob(job.id, { status: "failed", message: "Phân tích thất bại" });
+      return [];
     } finally {
       setDetecting(false);
+    }
+  }
+
+  // "⚡ Bóc toàn bộ": detect if needed → calibration gate → measure → prompt
+  async function handleFullTakeoff() {
+    if (!activeDrawingId || fullTakeoffRunning || detecting) return;
+    setFullTakeoffRunning(true);
+    try {
+      // a. Ensure objects — run detection when nothing has been detected yet
+      let objs = objects;
+      if (objs.length === 0) objs = await handleDetect();
+      if (objs.length === 0) return;
+
+      // b. Calibration gate — warn once, allow proceeding in drawing units
+      if (!calibration) {
+        const proceed = window.confirm(
+          "Bản vẽ chưa hiệu chỉnh tỉ lệ — số liệu bóc sẽ theo ĐƠN VỊ BẢN VẼ, không phải mét.\n\n" +
+          "OK: tiếp tục (bỏ qua)\nCancel: hiệu chỉnh trước (click 2 điểm trên đoạn đã biết kích thước)"
+        );
+        if (!proceed) {
+          setCalibrationPromptKey((k) => k + 1); // re-open CalibrationBar in canvas
+          return;
+        }
+      }
+
+      // c. Only objects not rejected in the Review Queue count
+      const included = objs.filter((o) => reviewStates[o.id] !== "rejected");
+      if (included.length === 0) return;
+      const summary = summarizeObjects(included, calibration);
+
+      // d + e. Structured prompt → page (ensures "Khối lượng" sheet + sends)
+      onFullTakeoff?.(buildFullTakeoffAction(included, activeDrawingId, calibration, summary));
+    } finally {
+      setFullTakeoffRunning(false);
     }
   }
 
@@ -186,9 +311,32 @@ export function DrawingWorkspace({
 
   // Handle tool selection side effects
   function handleToolChange(tool: DrawingTool) {
+    if (tool === "layer") {
+      // Layer is a toggle for the panel, not a modal tool
+      setLayerPanelOpen((v) => !v);
+      return;
+    }
     setActiveTool(tool);
     if (tool === "ai") handleDetect();
   }
+
+  // Keyboard shortcuts for scene-canvas tools: M measure, A area, L layer panel
+  useEffect(() => {
+    if (sceneStatus !== "ready" || !scene) return;
+    function onKey(e: KeyboardEvent) {
+      const el = e.target as HTMLElement;
+      if (el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" || e.ctrlKey || e.metaKey || e.altKey) return;
+      // Review Queue owns its keys (A/X/E/arrows) while focused
+      if (el?.closest?.("[data-review-queue]")) return;
+      const k = e.key.toLowerCase();
+      if (k === "m") setActiveTool("measure");
+      else if (k === "a") setActiveTool("area");
+      else if (k === "l") setLayerPanelOpen((v) => !v);
+      else if (k === "v") setActiveTool("pointer");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sceneStatus, scene]);
 
   // Empty state
   if (drawings.length === 0) {
@@ -219,21 +367,36 @@ export function DrawingWorkspace({
 
   const isReady   = !activeDrawing.parseStatus || activeDrawing.parseStatus === "ready";
   const isProcessing = !isReady;
+  const pendingReviewCount = objects.filter((o) => !reviewStates[o.id]).length;
 
   // Always serve files through API proxy — Cloudinary raw URLs return 401 (CDN ACL)
   const proxyUrl = `${API_URL}/estimates/${estimateId}/drawings/${activeDrawing.id}/file`;
 
   const isPdf  = isReady && activeDrawing.type === "pdf";
+  const isVector = isReady && (activeDrawing.type === "dxf" || activeDrawing.type === "dwg");
+  // Unified scene canvas takes over dxf/dwg when the scene endpoint responds
+  const sceneActive  = isVector && sceneStatus === "ready" && scene != null;
+  const sceneLoading = isVector && sceneStatus === "loading";
+  // Legacy fallback (scene endpoint 404 / error)
   // DXF viewer only handles ASCII DXF — DWG binary will crash dxf-viewer
-  const isDxf  = isReady && activeDrawing.type === "dxf";
+  const isDxf  = isVector && sceneStatus === "fallback" && activeDrawing.type === "dxf";
   const dxfUrl = isDxf ? proxyUrl : undefined;
-  const isDwg  = isReady && activeDrawing.type === "dwg";
+  const isDwg  = isVector && sceneStatus === "fallback" && activeDrawing.type === "dwg";
   const isImage = isReady && activeDrawing.type === "image";
+
+  const capabilities: DrawingTool[] = sceneActive
+    ? ["pointer", "measure", "area", "layer", "search", "ai"]
+    : ["pointer", "search", "ai"];
 
   return (
     <div className="flex h-full overflow-hidden">
       {/* Vertical toolbar */}
-      <DrawingToolbar activeTool={activeTool} onToolChange={handleToolChange} vertical />
+      <DrawingToolbar
+        activeTool={activeTool}
+        onToolChange={handleToolChange}
+        capabilities={capabilities}
+        vertical
+      />
 
       {/* Main viewer */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -251,6 +414,24 @@ export function DrawingWorkspace({
             >
               {detecting ? <Spinner className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
               <span>Detect</span>
+            </button>
+            <button
+              onClick={handleFullTakeoff}
+              disabled={!isReady || fullTakeoffRunning || detecting}
+              title="Bóc khối lượng toàn bộ bản vẽ vào sheet 'Khối lượng'"
+              className="flex items-center gap-1 px-2 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white disabled:opacity-50 text-[11px] transition-colors"
+            >
+              {fullTakeoffRunning ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
+              <span>Bóc toàn bộ</span>
+            </button>
+            <button
+              onClick={() => setReviewOpen((v) => !v)}
+              disabled={objects.length === 0}
+              className={`px-2 py-1 rounded text-[11px] transition-colors disabled:opacity-50 ${
+                reviewOpen ? "bg-blue-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+              }`}
+            >
+              Duyệt{pendingReviewCount > 0 ? ` (${pendingReviewCount} chưa xem)` : ""}
             </button>
             <button
               onClick={() => setInspectorOpen(!inspectorOpen)}
@@ -273,6 +454,28 @@ export function DrawingWorkspace({
               onObjectSelect={handleObjectSelect}
               onViewportChange={(info) => setViewport(info)}
             />
+          )}
+          {sceneActive && (
+            <DrawingCanvas
+              scene={scene!}
+              objects={objects}
+              selectedObjectId={selectedObject?.id}
+              activeTool={activeTool}
+              calibration={calibration}
+              onCalibrated={handleCalibrated}
+              onObjectClick={handleObjectSelect}
+              layerPanelOpen={layerPanelOpen}
+              onLayerPanelClose={() => setLayerPanelOpen(false)}
+              focusObjectId={focusObjectId}
+              reviewStates={reviewStates}
+              calibrationPromptKey={calibrationPromptKey}
+            />
+          )}
+          {sceneLoading && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
+              <Spinner className="h-6 w-6" />
+              <p className="text-sm">Đang tải bản vẽ vector...</p>
+            </div>
           )}
           {isDxf && (
             <DxfViewer
@@ -298,6 +501,29 @@ export function DrawingWorkspace({
           )}
         </div>
       </div>
+
+      {/* Review Queue panel */}
+      {reviewOpen && (
+        <div className="w-64 shrink-0 border-l border-zinc-800 bg-zinc-900 flex flex-col overflow-hidden">
+          <ReviewQueue
+            objects={objects}
+            calibration={calibration}
+            states={reviewStates}
+            onStateChange={handleReviewStateChange}
+            onSelect={(obj) => {
+              setSelectedObject(obj);
+              setFocusObjectId(obj.id);
+              onObjectSelect?.(obj);
+            }}
+            onInspect={(obj) => {
+              setSelectedObject(obj);
+              setFocusObjectId(obj.id);
+              setInspectorOpen(true);
+            }}
+            onClose={() => setReviewOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Object Inspector panel */}
       {inspectorOpen && (

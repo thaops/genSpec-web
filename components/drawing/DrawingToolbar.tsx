@@ -1,6 +1,6 @@
 "use client";
 
-import { MousePointer2, Search, Sparkles } from "lucide-react";
+import { Layers, MousePointer2, Ruler, Search, Sparkles, SquareDashed } from "lucide-react";
 
 export type DrawingTool =
   | "pointer"
@@ -22,25 +22,39 @@ interface Tool {
   dividerAfter?: boolean;
 }
 
-// Only tools with real behavior are offered. Measure/count/area/layer/compare
-// return with the unified DrawingCanvas (M1) — re-add entries here when wired.
+// Measure/area/layer only have behavior on the unified DrawingCanvas —
+// the parent gates them via `capabilities`.
 const TOOLS: Tool[] = [
   { id: "pointer", Icon: MousePointer2,   label: "Pointer", shortcut: "V" },
+  { id: "measure", Icon: Ruler,           label: "Measure", shortcut: "M" },
+  { id: "area",    Icon: SquareDashed,    label: "Area",    shortcut: "A" },
+  { id: "layer",   Icon: Layers,          label: "Layers",  shortcut: "L" },
   { id: "search",  Icon: Search,          label: "Search",  shortcut: "F", dividerAfter: true },
   { id: "ai",      Icon: Sparkles,        label: "AI Detect", shortcut: "⌘D" },
 ];
+
+const DEFAULT_CAPABILITIES: DrawingTool[] = ["pointer", "search", "ai"];
 
 interface DrawingToolbarProps {
   activeTool: DrawingTool;
   onToolChange: (tool: DrawingTool) => void;
   vertical?: boolean;
+  // Only tools listed here are rendered. Defaults to pointer/search/ai;
+  // the scene canvas additionally enables measure/area/layer.
+  capabilities?: DrawingTool[];
 }
 
-export function DrawingToolbar({ activeTool, onToolChange, vertical = true }: DrawingToolbarProps) {
+export function DrawingToolbar({
+  activeTool,
+  onToolChange,
+  vertical = true,
+  capabilities = DEFAULT_CAPABILITIES,
+}: DrawingToolbarProps) {
+  const tools = TOOLS.filter((t) => capabilities.includes(t.id));
   if (vertical) {
     return (
       <div className="flex flex-col items-center gap-0.5 py-2 px-1 bg-zinc-950 border-r border-zinc-800 w-10 shrink-0">
-        {TOOLS.map((tool) => (
+        {tools.map((tool) => (
           <div key={tool.id} className="flex flex-col items-center w-full">
             <button
               title={`${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ""}`}
@@ -65,7 +79,7 @@ export function DrawingToolbar({ activeTool, onToolChange, vertical = true }: Dr
   // Horizontal layout
   return (
     <div className="flex items-center gap-0.5 px-2 py-1 bg-zinc-950 border-b border-zinc-800 shrink-0">
-      {TOOLS.map((tool) => (
+      {tools.map((tool) => (
         <div key={tool.id} className="flex items-center">
           <button
             title={`${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ""}`}

@@ -264,12 +264,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
 
             <div className="mt-auto">
-              <button
+              <Link
+                href="/settings"
                 title="Settings"
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-zinc-800 hover:text-zinc-300",
+                  pathname === "/settings" ? "bg-zinc-800 text-zinc-200" : "text-zinc-600"
+                )}
               >
                 <Settings className="h-4 w-4" />
-              </button>
+              </Link>
             </div>
           </aside>
 

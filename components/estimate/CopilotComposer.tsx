@@ -35,6 +35,34 @@ const KIND_STYLES: Record<FileKind, string> = {
   file: "text-zinc-300 bg-zinc-700/40 border-zinc-600/50",
 };
 
+// F3: @-mention context suggestion (sheets, selection, drawings, objects)
+export type MentionKind = "sheet" | "selection" | "drawing" | "object";
+
+export interface MentionItem {
+  label: string;
+  kind: MentionKind;
+  sheetId?: string;
+}
+
+const MENTION_KIND_VI: Record<MentionKind, string> = {
+  sheet: "Sheet",
+  selection: "Vùng chọn",
+  drawing: "Bản vẽ",
+  object: "Đối tượng",
+};
+
+interface MentionState {
+  start: number; // index of the "@" in value
+  query: string;
+}
+
+function detectMention(text: string, caret: number): MentionState | null {
+  const upto = text.slice(0, caret);
+  const m = /@([^\s@\[\]]*)$/.exec(upto);
+  if (!m) return null;
+  return { start: caret - m[0].length, query: m[1] };
+}
+
 interface Props {
   value: string;
   onChange: (v: string) => void;
@@ -43,6 +71,7 @@ interface Props {
   onRemoveFile: (index: number) => void;
   onSend: () => void;
   loading: boolean;
+  mentionItems?: MentionItem[];
 }
 
 export function CopilotComposer({
@@ -53,11 +82,45 @@ export function CopilotComposer({
   onRemoveFile,
   onSend,
   loading,
+  mentionItems = [],
 }: Props) {
   const { t } = useT();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [mention, setMention] = useState<MentionState | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
+  const mentionMatches = mention
+    ? mentionItems.filter((it) =>
+        it.label.toLowerCase().includes(mention.query.toLowerCase())
+      )
+    : [];
+  const mentionOpen = mention !== null && mentionMatches.length > 0;
+
+  function refreshMention() {
+    const el = taRef.current;
+    if (!el) return;
+    const next = detectMention(el.value, el.selectionStart ?? el.value.length);
+    setMention(next);
+    setMentionIndex(0);
+  }
+
+  function pickMention(item: MentionItem) {
+    if (!mention) return;
+    const el = taRef.current;
+    const caret = el?.selectionStart ?? value.length;
+    const inserted = `@[${item.label}] `;
+    const next = value.slice(0, mention.start) + inserted + value.slice(caret);
+    onChange(next);
+    setMention(null);
+    // Restore caret right after the inserted token
+    requestAnimationFrame(() => {
+      const pos = mention.start + inserted.length;
+      el?.focus();
+      el?.setSelectionRange(pos, pos);
+    });
+  }
 
   const canSend = (value.trim().length > 0 || files.length > 0) && !loading;
 
@@ -143,18 +206,74 @@ export function CopilotComposer({
         </div>
       )}
 
+      {/* Mention dropdown */}
+      {mentionOpen && (
+        <div className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 py-1 shadow-xl">
+          {mentionMatches.map((it, i) => (
+            <button
+              key={`${it.kind}-${it.label}-${i}`}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pickMention(it);
+              }}
+              onMouseEnter={() => setMentionIndex(i)}
+              className={cn(
+                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px]",
+                i === mentionIndex
+                  ? "bg-accent-500/15 text-accent-200"
+                  : "text-zinc-300"
+              )}
+            >
+              <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-zinc-500">
+                {MENTION_KIND_VI[it.kind]}
+              </span>
+              <span className="truncate">{it.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Textarea */}
       <textarea
         ref={taRef}
         value={value}
         disabled={loading}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          onChange(e.target.value);
+          requestAnimationFrame(refreshMention);
+        }}
         onKeyDown={(e) => {
+          if (mentionOpen) {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setMentionIndex((i) => (i + 1) % mentionMatches.length);
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setMentionIndex(
+                (i) => (i - 1 + mentionMatches.length) % mentionMatches.length
+              );
+              return;
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+              e.preventDefault();
+              pickMention(mentionMatches[mentionIndex]);
+              return;
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setMention(null);
+              return;
+            }
+          }
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             if (canSend) onSend();
           }
         }}
+        onBlur={() => setMention(null)}
         rows={3}
         placeholder={t("copilot.placeholder")}
         className="block max-h-[200px] min-h-[76px] w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:outline-none disabled:opacity-60"

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 import type {
   Action,
+  AppliedActionsRecord,
   ConversationMessage,
   CopilotProposal,
   Drawing,
@@ -16,12 +17,12 @@ import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace"
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
-import { CopilotComposer } from "./CopilotComposer";
+import { CopilotComposer, type MentionItem } from "./CopilotComposer";
 import { type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
 import { HistoryTimeline } from "./HistoryTimeline";
 import { SparkleIcon, ChevronRightIcon } from "@/components/ui/icons";
-import { Bot, History as HistoryIcon, Lock, MapPin, Ruler } from "lucide-react";
+import { Bot, History as HistoryIcon, Lock, MapPin, Pause, Ruler, Undo2 } from "lucide-react";
 import { takePendingTask, type PendingTask } from "@/lib/pendingTask";
 import { TaskCard } from "./TaskCard";
 
@@ -62,6 +63,35 @@ function buildAppliedDiff(actions: Action[]): string {
 export interface AgentHandle {
   send: (text: string, files: File[]) => void;
   injectMessage: (msg: Pick<ConversationMessage, "kind" | "text">) => void;
+  /** Undo the patch created by an applied AI message (per-message undo logic) */
+  undoPatch: (patchId: string) => void;
+}
+
+/** Snapshot of an applied proposal for the onActionsApplied callback. */
+function toAppliedRecord(
+  p: CopilotProposal,
+  msgId: string,
+  patchId: string | undefined
+): AppliedActionsRecord {
+  return {
+    patchId,
+    msgId,
+    appliedAt: new Date().toISOString(),
+    message:
+      p.message.length > 200 ? p.message.slice(0, 200) + "…" : p.message,
+    sources: p.sources ?? [],
+    cells: p.actions
+      .filter(
+        (a): a is Extract<Action, { type: "update_cells" }> =>
+          a.type === "update_cells"
+      )
+      .map((a) => ({
+        sheetId: a.sheetId,
+        cell: a.cell.toUpperCase(),
+        oldValue: a.oldValue,
+        newValue: a.newValue,
+      })),
+  };
 }
 
 interface ProposalItem {
@@ -102,10 +132,13 @@ interface Props {
   /** Estimate update WITHOUT editor reinit — used after a live drive already
       wrote the same values into the grid */
   onEstimateSynced?: (e: Estimate) => void;
+  /** Called after each successful apply with the cell edits + provenance */
+  onActionsApplied?: (record: AppliedActionsRecord) => void;
 }
 
 export function AgentConsole({
   estimate,
+  drawings,
   onEstimateUpdated,
   controlRef,
   collapsed,
@@ -120,6 +153,7 @@ export function AgentConsole({
   workbookDriver,
   onAgentNavigate,
   onEstimateSynced,
+  onActionsApplied,
 }: Props) {
   const toast = useToast();
   const [showHistory, setShowHistory] = useState(false);
@@ -136,8 +170,12 @@ export function AgentConsole({
     string | undefined
   >();
   const [activeTask, setActiveTask] = useState<PendingTask | null>(null);
+  // F4: local (non-persisted) resume summary shown when reopening an old thread
+  const [resumeSummary, setResumeSummary] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  // F1: user requested drive stop (⏸ button or Escape)
+  const driveAbortRef = useRef(false);
   const pendingFinalizeRef = useRef<(() => void) | null>(null);
   const typewriterRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueRef = useRef("");
@@ -194,6 +232,36 @@ export function AgentConsole({
           }
         }
         if (restored.length) setProposals(restored);
+        // F4: resume card when the last message is older than 30 minutes
+        const last = msgs[msgs.length - 1];
+        if (last && Date.now() - Date.parse(last.timestamp) > 30 * 60 * 1000) {
+          const lines: string[] = [];
+          const lastUser = [...msgs].reverse().find((m) => m.kind === "user");
+          if (lastUser?.text) {
+            const cut =
+              lastUser.text.length > 100
+                ? lastUser.text.slice(0, 100) + "…"
+                : lastUser.text;
+            lines.push(`Yêu cầu gần nhất: "${cut}"`);
+          }
+          const pending = msgs.filter(
+            (m) =>
+              m.kind === "proposal" &&
+              m.proposal &&
+              (m.proposalState ?? "pending") === "pending"
+          ).length;
+          if (pending > 0) {
+            lines.push(`Còn ${pending} đề xuất chưa áp dụng — xem trong chat.`);
+          }
+          const ph = estimateRef.current.patchHistory ?? [];
+          const lastPatch = ph[ph.length - 1];
+          if (lastPatch?.description) {
+            lines.push(`Thay đổi gần nhất: ${lastPatch.description}`);
+          }
+          if (lines.length > 0) {
+            setResumeSummary(`👋 Phiên trước:\n${lines.join("\n")}`);
+          }
+        }
         setHistoryLoaded(true);
       })
       .catch(() => {
@@ -322,22 +390,34 @@ export function AgentConsole({
 
   const MAX_DRIVE_STEPS = 40;
 
+  interface DriveResult {
+    fullyDriven: boolean;
+    /** User pressed ⏸ / Escape mid-drive — caller must NOT persist */
+    aborted: boolean;
+  }
+
   /**
    * Replays cell actions visually: activate sheet → move selection → write →
    * flash — so the user watches the AI edit the grid in real time.
-   * Returns true only when EVERY action was driven into the grid; otherwise
-   * the caller must fall back to a full editor reload.
+   * `fullyDriven` is true only when EVERY action was driven into the grid;
+   * otherwise the caller must fall back to a full editor reload.
    */
-  async function driveActions(actions: Action[]): Promise<boolean> {
+  async function driveActions(actions: Action[]): Promise<DriveResult> {
     const driver = workbookDriver?.current;
-    if (!driver) return false;
+    if (!driver) return { fullyDriven: false, aborted: false };
     const cellActs = actions.filter(
       (a): a is Extract<Action, { type: "update_cells" }> => a.type === "update_cells"
     );
-    if (cellActs.length === 0) return false;
+    if (cellActs.length === 0) return { fullyDriven: false, aborted: false };
+    driveAbortRef.current = false;
+    let aborted = false;
     driver.beginDrive();
     try {
       for (const a of cellActs.slice(0, MAX_DRIVE_STEPS)) {
+        if (driveAbortRef.current) {
+          aborted = true;
+          break;
+        }
         const rc = a1ToRowCol(a.cell);
         if (!rc) continue;
         onAgentNavigate?.(a.sheetId);
@@ -352,9 +432,56 @@ export function AgentConsole({
       driver.endDrive();
       setDriveStatus(null);
     }
-    // Fully driven only if nothing was skipped or truncated
-    return actions.length === cellActs.length && cellActs.length <= MAX_DRIVE_STEPS;
+    // Fully driven only if nothing was skipped, truncated or aborted
+    return {
+      fullyDriven:
+        !aborted &&
+        actions.length === cellActs.length &&
+        cellActs.length <= MAX_DRIVE_STEPS,
+      aborted,
+    };
   }
+
+  const stopDrive = useCallback(() => {
+    driveAbortRef.current = true;
+  }, []);
+
+  // F1: Escape stops the drive — listener active only while driving
+  const isDriving = driveStatus !== null;
+  useEffect(() => {
+    if (!isDriving) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") driveAbortRef.current = true;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isDriving]);
+
+  /** F1: after an aborted drive — reload server state to revert visual writes */
+  async function revertDrive() {
+    try {
+      const fresh = await api.getEstimate(estimateRef.current.id);
+      onEstimateUpdated(fresh);
+    } catch {
+      /* keep current view; server state unchanged anyway */
+    }
+  }
+
+  // F3: @-mention suggestions — sheets, current selection, drawings, selected object
+  const mentionItems = useMemo<MentionItem[]>(() => {
+    const items: MentionItem[] = [];
+    for (const s of estimate.sheets ?? []) {
+      items.push({ label: s.name, kind: "sheet", sheetId: s.id });
+    }
+    if (selectedRange) items.push({ label: "vùng chọn", kind: "selection" });
+    for (const d of drawings ?? []) {
+      items.push({ label: d.name, kind: "drawing" });
+    }
+    if (selectedDrawingObject) {
+      items.push({ label: selectedDrawingObject.type, kind: "object" });
+    }
+    return items;
+  }, [estimate.sheets, selectedRange, drawings, selectedDrawingObject]);
 
   function toggleEditPermission() {
     const next = !editPermission;
@@ -395,6 +522,18 @@ export function AgentConsole({
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     let finalThread = nextThread;
+
+    // F3: a mentioned sheet (@[Tên sheet]) overrides activeSheetId for this request
+    let requestSheetId = activeSheetId;
+    for (const m of message.matchAll(/@\[([^\]]+)\]/g)) {
+      const sheet = (estimateRef.current.sheets ?? []).find(
+        (s) => s.name === m[1]
+      );
+      if (sheet && sheet.id !== activeSheetId) {
+        requestSheetId = sheet.id;
+        break;
+      }
+    }
 
     try {
       await api.copilotStream(
@@ -461,25 +600,58 @@ export function AgentConsole({
               setLiveSteps([]);
               // Drive the edits live on the grid, then persist once
               driveActions(p.actions)
-                .catch(() => false)
-                .then((fullyDriven) =>
-                  api.applyActions(estimateRef.current.id, p.actions, "ai").then((res) => ({ res, fullyDriven }))
-                )
-                .then(({ res, fullyDriven }) => {
+                .catch(() => ({ fullyDriven: false, aborted: false }))
+                .then(async ({ fullyDriven, aborted }) => {
+                  if (aborted) {
+                    // F1: user stopped — revert visual writes, keep proposal pending
+                    await revertDrive();
+                    const proposalMsg: ConversationMessage = {
+                      id: msgId,
+                      kind: "proposal",
+                      text: p.message,
+                      proposal: p,
+                      proposalState: "pending",
+                      timestamp: ts,
+                    };
+                    const stopMsg: ConversationMessage = {
+                      id: nextId(),
+                      kind: "assistant",
+                      text: "⏸ Đã dừng — không có thay đổi nào được lưu. Bạn có thể Áp dụng lại đề xuất bên trên.",
+                      timestamp: new Date().toISOString(),
+                    };
+                    setProposals((prev) => [
+                      ...prev,
+                      { msgId, proposal: p, state: "pending", timestamp: ts },
+                    ]);
+                    finalThread = [...nextThread, proposalMsg, stopMsg];
+                    setThread(finalThread);
+                    saveConversation(finalThread);
+                    return;
+                  }
+                  const res = await api.applyActions(
+                    estimateRef.current.id,
+                    p.actions,
+                    "ai"
+                  );
                   if (fullyDriven && onEstimateSynced) onEstimateSynced(res.estimate);
                   else onEstimateUpdated(res.estimate);
                   const applied = res.applied ?? p.actions.length;
                   const diffText = buildAppliedDiff(p.actions);
+                  const history = res.estimate.patchHistory ?? [];
                   const doneMsg: ConversationMessage = {
                     id: msgId,
                     kind: "assistant",
                     text: `${p.message}\n\n✓ Đã áp dụng ${applied} thay đổi.${diffText}`,
+                    patchId: history[history.length - 1]?.id,
                     timestamp: ts,
                   };
                   const nextFinalThread = [...nextThread, doneMsg];
                   finalThread = nextFinalThread;
                   setThread(nextFinalThread);
                   saveConversation(nextFinalThread);
+                  onActionsApplied?.(
+                    toAppliedRecord(p, msgId, doneMsg.patchId)
+                  );
                 })
                 .catch((err: Error) => {
                   const errMsg: ConversationMessage = {
@@ -538,7 +710,7 @@ export function AgentConsole({
             setLiveSteps([]);
           },
         },
-        activeSheetId,
+        requestSheetId,
         selectedRange,
         activeDrawingId ?? drawingViewport?.drawingId,
         selectedDrawingObject?.id,
@@ -573,7 +745,27 @@ export function AgentConsole({
     );
     let fullyDriven = false;
     try {
-      fullyDriven = await driveActions(item.proposal.actions);
+      const drive = await driveActions(item.proposal.actions);
+      if (drive.aborted) {
+        // F1: user stopped — revert visual writes, keep proposal pending
+        await revertDrive();
+        setProposals((prev) =>
+          prev.map((x) =>
+            x.msgId === item.msgId ? { ...x, state: "pending" } : x
+          )
+        );
+        setThread((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            kind: "assistant",
+            text: "⏸ Đã dừng — không có thay đổi nào được lưu.",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
+      fullyDriven = drive.fullyDriven;
     } catch {
       fullyDriven = false;
     }
@@ -586,6 +778,8 @@ export function AgentConsole({
       if (fullyDriven && onEstimateSynced) onEstimateSynced(res.estimate);
       else onEstimateUpdated(res.estimate);
       const applied = res.applied ?? item.proposal.actions.length;
+      const history = res.estimate.patchHistory ?? [];
+      const patchId = history[history.length - 1]?.id;
       setProposals((prev) =>
         prev.map((x) =>
           x.msgId === item.msgId
@@ -595,11 +789,12 @@ export function AgentConsole({
       );
       const nextThread = thread.map((x) =>
         x.id === item.msgId
-          ? { ...x, proposalState: "applied" as const, appliedCount: applied }
+          ? { ...x, proposalState: "applied" as const, appliedCount: applied, patchId }
           : x
       );
       setThread(nextThread);
       saveConversation(nextThread);
+      onActionsApplied?.(toAppliedRecord(item.proposal, item.msgId, patchId));
       if (res.warnings?.length)
         toast.error("Cảnh báo", res.warnings.join(", "));
     } catch (err) {
@@ -625,6 +820,40 @@ export function AgentConsole({
     );
     setThread(nextThread);
     saveConversation(nextThread);
+  }
+
+  // F2: per-message undo — rolls back the patch created by that message
+  async function undoMessage(msg: ConversationMessage) {
+    if (!msg.patchId) return;
+    if (
+      !window.confirm(
+        "Hoàn tác thay đổi này? Các thay đổi sau đó (nếu có) cũng sẽ bị hoàn tác."
+      )
+    )
+      return;
+    setRollbackLoadingId(msg.patchId);
+    try {
+      const res = await api.rollback(estimateRef.current.id, msg.patchId);
+      onEstimateUpdated(res);
+      const undoneMsg: ConversationMessage = {
+        id: nextId(),
+        kind: "assistant",
+        text: "↩ Đã hoàn tác thay đổi.",
+        timestamp: new Date().toISOString(),
+      };
+      setThread((prev) => {
+        const next = [
+          ...prev.map((x) => (x.id === msg.id ? { ...x, undone: true } : x)),
+          undoneMsg,
+        ];
+        saveConversation(next);
+        return next;
+      });
+    } catch (err) {
+      toast.error("Hoàn tác thất bại", (err as ApiError).message);
+    } finally {
+      setRollbackLoadingId(undefined);
+    }
   }
 
   async function handleRollback(patchId: string) {
@@ -654,6 +883,19 @@ export function AgentConsole({
         };
         setThread((prev) => [...prev, full]);
         setShowHistory(false);
+      },
+      undoPatch: (patchId: string) => {
+        // Reuse per-message undo when the source message is in the thread;
+        // otherwise undo the patch via a synthetic message reference.
+        const msg = thread.find((m) => m.patchId === patchId && !m.undone);
+        undoMessage(
+          msg ?? {
+            id: "",
+            kind: "assistant",
+            patchId,
+            timestamp: new Date().toISOString(),
+          }
+        );
       },
     };
   });
@@ -773,6 +1015,17 @@ export function AgentConsole({
             onClearTask={() => setActiveTask(null)}
             scrollRef={scrollRef}
             onScroll={handleChatScroll}
+            onStopDrive={stopDrive}
+            mentionItems={mentionItems}
+            patchIds={(estimate.patchHistory ?? []).map((p) => p.id)}
+            onUndoMessage={undoMessage}
+            undoLoadingPatchId={rollbackLoadingId}
+            resumeSummary={resumeSummary}
+            onResumeContinue={() => {
+              setResumeSummary(null);
+              send("Tiếp tục việc đang làm dở dựa trên hội thoại trước", []);
+            }}
+            onResumeDismiss={() => setResumeSummary(null)}
           />
         )}
       </div>
@@ -806,6 +1059,14 @@ interface ChatPanelProps {
   onClearTask: () => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onScroll: () => void;
+  onStopDrive: () => void;
+  mentionItems: MentionItem[];
+  patchIds: string[];
+  onUndoMessage: (msg: ConversationMessage) => void;
+  undoLoadingPatchId?: string;
+  resumeSummary: string | null;
+  onResumeContinue: () => void;
+  onResumeDismiss: () => void;
 }
 
 function colLetter(col: number): string {
@@ -847,6 +1108,14 @@ function ChatPanel({
   onClearTask,
   scrollRef,
   onScroll,
+  onStopDrive,
+  mentionItems,
+  patchIds,
+  onUndoMessage,
+  undoLoadingPatchId,
+  resumeSummary,
+  onResumeContinue,
+  onResumeDismiss,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -874,6 +1143,29 @@ function ChatPanel({
           />
         )}
 
+        {/* F4: resume card — local only, never persisted */}
+        {historyLoaded && resumeSummary && (
+          <div className="animate-slide-up rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-3 text-sm text-zinc-200">
+            <p className="whitespace-pre-line">{resumeSummary}</p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={onResumeContinue}
+                className="rounded-full border border-accent-500/40 bg-accent-500/10 px-3 py-1 text-[12px] text-accent-200 transition-colors hover:bg-accent-500/20"
+              >
+                Tiếp tục việc đang dở
+              </button>
+              <button
+                type="button"
+                onClick={onResumeDismiss}
+                className="rounded-full border border-zinc-700 bg-zinc-800/60 px-3 py-1 text-[12px] text-zinc-300 transition-colors hover:bg-zinc-800"
+              >
+                Việc mới
+              </button>
+            </div>
+          </div>
+        )}
+
         {!historyLoaded && (
           <div className="flex justify-center py-4">
             <span className="text-[12px] text-zinc-600">
@@ -888,6 +1180,15 @@ function ChatPanel({
           />
         )}
         {thread.map((item) => {
+          // F2: undo button available while the patch is still in history
+          const canUndo =
+            !!item.patchId && !item.undone && patchIds.includes(item.patchId);
+          const undoBtn = canUndo ? (
+            <UndoButton
+              loading={undoLoadingPatchId === item.patchId}
+              onClick={() => onUndoMessage(item)}
+            />
+          ) : null;
           if (item.kind === "user") {
             return (
               <ChatBubble key={item.id} role="user" text={item.text ?? ""} />
@@ -905,11 +1206,10 @@ function ChatPanel({
           }
           if (item.kind === "assistant") {
             return (
-              <ChatBubble
-                key={item.id}
-                role="assistant"
-                text={item.text ?? ""}
-              />
+              <div key={item.id}>
+                <ChatBubble role="assistant" text={item.text ?? ""} />
+                {undoBtn}
+              </div>
             );
           }
           if (item.kind === "proposal" && item.proposal) {
@@ -924,16 +1224,18 @@ function ChatPanel({
               );
             }
             return (
-              <ProposalCard
-                key={item.id}
-                proposal={item.proposal}
-                state={proposalItem.state}
-                appliedCount={proposalItem.appliedCount}
-                fresh={proposalItem.state === "pending"}
-                onApply={() => onApplyProposal(proposalItem)}
-                onDiscard={() => onDiscardProposal(proposalItem)}
-                onViewActivity={() => {}}
-              />
+              <div key={item.id}>
+                <ProposalCard
+                  proposal={item.proposal}
+                  state={proposalItem.state}
+                  appliedCount={proposalItem.appliedCount}
+                  fresh={proposalItem.state === "pending"}
+                  onApply={() => onApplyProposal(proposalItem)}
+                  onDiscard={() => onDiscardProposal(proposalItem)}
+                  onViewActivity={() => {}}
+                />
+                {proposalItem.state === "applied" && undoBtn}
+              </div>
             );
           }
           return null;
@@ -949,6 +1251,15 @@ function ChatPanel({
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
               <Bot className="h-3.5 w-3.5 shrink-0" />
               {driveStatus}
+              <button
+                type="button"
+                onClick={onStopDrive}
+                title="Dừng (Esc)"
+                className="ml-1 flex shrink-0 items-center gap-1 rounded-full border border-blue-400/40 bg-blue-500/20 px-2 py-0.5 text-[11px] font-medium text-blue-100 transition-colors hover:bg-blue-500/30"
+              >
+                <Pause className="h-3 w-3" />
+                Dừng
+              </button>
             </div>
           </div>
         )}
@@ -1049,9 +1360,31 @@ function ChatPanel({
             setFiles([]);
           }}
           loading={streaming}
+          mentionItems={mentionItems}
         />
       </div>
     </>
+  );
+}
+
+// F2: small "undo this message" affordance under an applied bubble/card
+function UndoButton({
+  loading,
+  onClick,
+}: {
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className="mt-1 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-50"
+    >
+      <Undo2 className="h-3 w-3" />
+      {loading ? "Đang hoàn tác…" : "Hoàn tác"}
+    </button>
   );
 }
 

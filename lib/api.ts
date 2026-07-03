@@ -15,6 +15,7 @@ import type {
   ApiErrorBody,
   Drawing,
   DrawingObject,
+  DrawingScene,
   RevisionDiff,
   AppNotification,
   BackgroundJob,
@@ -423,6 +424,13 @@ export const api = {
     return res.json() as Promise<Drawing>;
   },
 
+  // Unified vector scene for the DrawingCanvas. 404 → ApiError (caller
+  // falls back to the legacy DxfViewer / DwgCanvasViewer).
+  getDrawingScene: (estimateId: string, drawingId: string) =>
+    request<DrawingScene>(
+      `/estimates/${estimateId}/drawings/${drawingId}/scene`
+    ),
+
   detectDrawingObjects: (estimateId: string, drawingId: string) =>
     request<{ drawingId: string; objectCount: number; objects: DrawingObject[] }>(
       `/estimates/${estimateId}/drawings/${drawingId}/detect`,
@@ -465,4 +473,79 @@ export function triggerDownload(blob: Blob, fileName: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// ---------- Catalog import (M2.5 — định mức + công bố giá tỉnh) ----------
+// NOTE: chưa có UI — trang Settings sẽ gọi các hàm này sau.
+
+export interface CatalogImportSummary {
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+export interface CatalogNormComponent {
+  kind: "material" | "labor" | "machine";
+  refCode?: string;
+  name: string;
+  unit: string;
+  norm: number;
+}
+
+export interface CatalogNormPreviewItem {
+  code: string;
+  name: string;
+  unit: string;
+  group: string;
+  components: CatalogNormComponent[];
+}
+
+export interface CatalogPricePreviewItem {
+  refCode?: string;
+  name: string;
+  unit: string;
+  price: number;
+  kind: "material" | "labor" | "machine";
+}
+
+export interface CatalogImportPreview<T> {
+  dryRun: true;
+  header: { headerRowIndex: number; columns: Record<string, number> } | null;
+  detectedColumns: string[];
+  total: number;
+  preview: T[]; // 100 dòng đầu đã map
+  errors: string[];
+}
+
+/** Import Excel định mức (TT12/2021...). dryRun=true → chỉ preview mapping. */
+export function importNorms(
+  file: File,
+  opts?: { sourceDoc?: string; dryRun?: boolean }
+): Promise<CatalogImportSummary | CatalogImportPreview<CatalogNormPreviewItem>> {
+  const form = new FormData();
+  form.append("file", file);
+  if (opts?.sourceDoc) form.append("sourceDoc", opts.sourceDoc);
+  const qs = opts?.dryRun ? "?dryRun=true" : "";
+  return request(`/catalog/import-norms${qs}`, { method: "POST", form });
+}
+
+/** Import công bố giá tỉnh. meta.effectiveDate: ISO date string. */
+export function importPrices(
+  file: File,
+  meta: { province: string; effectiveDate: string; sourceDoc?: string },
+  dryRun?: boolean
+): Promise<CatalogImportSummary | CatalogImportPreview<CatalogPricePreviewItem>> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("province", meta.province);
+  form.append("effectiveDate", meta.effectiveDate);
+  if (meta.sourceDoc) form.append("sourceDoc", meta.sourceDoc);
+  const qs = dryRun ? "?dryRun=true" : "";
+  return request(`/catalog/import-prices${qs}`, { method: "POST", form });
+}
+
+/** Xuất Bảng Tổng hợp dự toán chi phí xây dựng (THDT) dạng xlsx. */
+export function exportTHDT(id: string): Promise<Blob> {
+  return downloadBlob(`/estimates/${id}/export-thdt`);
 }

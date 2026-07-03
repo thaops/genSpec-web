@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Action, Drawing, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
-import { api, ApiError, triggerDownload } from "@/lib/api";
+import type { Action, AppliedActionsRecord, Drawing, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
+import { api, ApiError, exportTHDT, triggerDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { useToast } from "@/components/ui/Toast";
@@ -16,6 +16,11 @@ import {
 } from "@/components/estimate/AgentConsole";
 import type { AgentHandle } from "@/components/estimate/AgentConsole";
 import WorkbookEditor, { type WorkbookDriver } from "@/components/estimate/WorkbookEditor";
+import {
+  CellExplainPopover,
+  cellKeyOf,
+  type AiCellEdit,
+} from "@/components/estimate/CellExplainPopover";
 import { InsightsDashboard } from "@/components/estimate/InsightsDashboard";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
 import { contextEngine } from "@/lib/context/ContextEngine";
@@ -66,6 +71,10 @@ export default function EstimateEditorPage() {
   const [splitMode, setSplitMode] = useState(false);
   const [agentWidth, setAgentWidth] = useState(380);
   const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
+  // Cells the AI just edited — key `${sheetId}:${CELL}` (uppercase A1)
+  const [aiEdits, setAiEdits] = useState<Map<string, AiCellEdit>>(new Map());
+  // Cell key the user closed the explain popover for (re-shows on reselect)
+  const [explainDismissedKey, setExplainDismissedKey] = useState<string | null>(null);
   const agentDrag = useRef({ active: false, startX: 0, startW: 0, curW: 0 });
   const copilotRef = useRef<AgentHandle>(null);
   const workbookDriverRef = useRef<WorkbookDriver | null>(null);
@@ -194,6 +203,69 @@ export default function EstimateEditorPage() {
     setActiveSheetId((prev) => (prev === sheetId ? prev : sheetId));
   }, []);
 
+  // Accumulate AI-edited cells from applied actions (max 500, newest wins)
+  const MAX_AI_EDITS = 500;
+  const handleActionsApplied = useCallback((record: AppliedActionsRecord) => {
+    if (!record.patchId || record.cells.length === 0) return;
+    setAiEdits((prev) => {
+      const next = new Map(prev);
+      for (const c of record.cells) {
+        const key = `${c.sheetId}:${c.cell}`.toUpperCase();
+        next.delete(key); // re-insert to refresh recency order
+        next.set(key, {
+          patchId: record.patchId!,
+          sheetId: c.sheetId,
+          cell: c.cell.toUpperCase(),
+          oldValue: c.oldValue,
+          newValue: c.newValue,
+          message: record.message,
+          sources: record.sources,
+          appliedAt: record.appliedAt,
+        });
+      }
+      while (next.size > MAX_AI_EDITS) {
+        const oldest = next.keys().next().value;
+        if (oldest === undefined) break;
+        next.delete(oldest);
+      }
+      return next;
+    });
+  }, []);
+
+  // Drop entries whose patch was rolled back (no longer in patchHistory)
+  useEffect(() => {
+    const ids = new Set((estimate?.patchHistory ?? []).map((p) => p.id));
+    setAiEdits((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const [key, entry] of prev) {
+        if (!ids.has(entry.patchId)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [estimate?.patchHistory]);
+
+  // Single selected cell that the AI edited → show explain popover
+  const singleCellKey =
+    activeSheetId &&
+    selectedRange &&
+    selectedRange.startRow === selectedRange.endRow &&
+    selectedRange.startCol === selectedRange.endCol
+      ? cellKeyOf(activeSheetId, selectedRange.startRow, selectedRange.startCol)
+      : null;
+  const explainEntry =
+    viewMode === "workbook" && singleCellKey
+      ? aiEdits.get(singleCellKey)
+      : undefined;
+
+  // Moving to another cell resets the manual dismiss
+  useEffect(() => {
+    setExplainDismissedKey(null);
+  }, [singleCellKey]);
+
   async function apply(actions: Action[]): Promise<boolean> {
     if (!estimate) return false;
     try {
@@ -217,6 +289,21 @@ export default function EstimateEditorPage() {
       const safe =
         (estimate.name || "estimate").replace(/[^\w\-]+/g, "_") || "estimate";
       triggerDownload(blob, `${safe}_F1.xlsx`);
+    } catch (err) {
+      toast.error(t("editor.exportFailed"), (err as ApiError).message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function onExportTHDT() {
+    if (!estimate || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await exportTHDT(estimate.id);
+      const safe =
+        (estimate.name || "estimate").replace(/[^\w\-]+/g, "_") || "estimate";
+      triggerDownload(blob, `${safe}_THDT.xlsx`);
     } catch (err) {
       toast.error(t("editor.exportFailed"), (err as ApiError).message);
     } finally {
@@ -323,6 +410,29 @@ export default function EstimateEditorPage() {
     // Context engine already knows current state; use Action Dispatcher
     const prompt = buildGenerateTakeoffAction(obj, drawingId, contextEngine.getContext());
     setViewMode("workbook");
+    setCollapsed(false);
+    setTimeout(() => copilotRef.current?.send(prompt, []), 300);
+  }
+
+  // "⚡ Bóc toàn bộ": ensure the "Khối lượng" sheet exists, show workbook +
+  // drawing side-by-side, then hand the structured prompt to the copilot.
+  async function handleFullTakeoff(prompt: string) {
+    if (!estimate) return;
+    const existing = (estimate.sheets ?? []).find((s) => s.name === "Khối lượng");
+    if (existing) {
+      setActiveSheetId(existing.id);
+    } else {
+      const newSheet: Sheet = {
+        id: `sheet-${Date.now()}`,
+        name: "Khối lượng",
+        data: { cellData: {}, rowCount: 100, columnCount: 20 },
+      };
+      await apply([{ type: "set_sheets", sheets: [...(estimate.sheets ?? []), newSheet] }]);
+      setActiveSheetId(newSheet.id);
+    }
+    // Split: workbook on the left, drawing on the right
+    setViewMode("drawing");
+    setSplitMode(true);
     setCollapsed(false);
     setTimeout(() => copilotRef.current?.send(prompt, []), 300);
   }
@@ -440,6 +550,13 @@ export default function EstimateEditorPage() {
               reinitKey={workbookReinitKey}
               driverRef={workbookDriverRef}
             />
+            {explainEntry && explainDismissedKey !== singleCellKey && (
+              <CellExplainPopover
+                entry={explainEntry}
+                onUndo={() => copilotRef.current?.undoPatch(explainEntry.patchId)}
+                onClose={() => setExplainDismissedKey(singleCellKey)}
+              />
+            )}
           </div>
         </>
       ) : viewMode === "workbook" ? (
@@ -462,6 +579,7 @@ export default function EstimateEditorPage() {
       drawings={drawings}
       onDrawingsChange={setDrawings}
       onObjectsLoaded={handleObjectsLoaded}
+      onFullTakeoff={handleFullTakeoff}
       onViewportChange={(info) => {
         setDrawingViewport(info);
         setActiveDrawingId(info.drawingId);
@@ -476,6 +594,7 @@ export default function EstimateEditorPage() {
         estimate={estimate}
         onRename={onRename}
         onExport={onExport}
+        onExportTHDT={onExportTHDT}
         exporting={exporting}
         onImportExcel={onImportExcel}
         importing={importing}
@@ -552,6 +671,7 @@ export default function EstimateEditorPage() {
           workbookDriver={workbookDriverRef}
           onAgentNavigate={handleAgentNavigate}
           onEstimateSynced={syncEstimate}
+          onActionsApplied={handleActionsApplied}
         />
       </div>
     </div>

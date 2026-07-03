@@ -550,7 +550,34 @@ export interface ConversationMessage {
   proposalState?: "pending" | "applied" | "discarded";
   appliedCount?: number;
   findings?: ReviewFinding[];
+  /** Patch created when this message's actions were applied — enables per-message undo */
+  patchId?: string;
+  /** True after the user rolled back this message's patch */
+  undone?: boolean;
   timestamp: string;
+}
+
+// ---------- Applied actions record (cell "Vì sao?" popover) ----------
+
+// One cell edit persisted from an applied `update_cells` action.
+export interface AppliedCellEdit {
+  sheetId: string;
+  cell: string;
+  oldValue: string;
+  newValue: string;
+}
+
+// Emitted by AgentConsole after actions are applied successfully — lets the
+// page track which cells the AI just edited (trust popover + undo per patch).
+export interface AppliedActionsRecord {
+  /** Patch created by this apply — undefined when the server returned no history */
+  patchId?: string;
+  msgId: string;
+  appliedAt: string;
+  /** Proposal message truncated to 200 chars */
+  message: string;
+  sources: CopilotSource[];
+  cells: AppliedCellEdit[];
 }
 
 // ---------- Drawing Domain ----------
@@ -719,6 +746,73 @@ export interface DrawingRevision {
   summary?: string;      // AI-generated summary of changes
   uploadedBy: string;
   createdAt: string;
+}
+
+// ---------- Drawing vector scene (unified DrawingCanvas) ----------
+// Contract: GET /estimates/:id/drawings/:drawingId/scene
+// CAD coordinates, Y-up (viewer flips when rendering).
+
+export interface SceneLine {
+  t: "line";
+  layer: string;
+  color?: string | null;
+  p: [number, number, number, number]; // x1,y1,x2,y2
+}
+
+export interface ScenePolyline {
+  t: "pline";
+  layer: string;
+  color?: string | null;
+  closed: boolean;
+  pts: number[]; // x,y,x,y,...
+}
+
+export interface SceneArc {
+  t: "arc";
+  layer: string;
+  color?: string | null;
+  cx: number; cy: number; r: number;
+  a0: number; a1: number; // radians, CCW in CAD space
+}
+
+export interface SceneCircle {
+  t: "circle";
+  layer: string;
+  color?: string | null;
+  cx: number; cy: number; r: number;
+}
+
+export interface SceneText {
+  t: "text";
+  layer: string;
+  color?: string | null;
+  x: number; y: number;
+  h: number;    // text height in drawing units
+  rot: number;  // rotation
+  s: string;    // content
+}
+
+export type SceneEntity = SceneLine | ScenePolyline | SceneArc | SceneCircle | SceneText;
+
+export interface SceneLayer {
+  name: string;
+  color?: string | null;
+  entityCount: number;
+}
+
+export interface DrawingScene {
+  version: 1;
+  units: "mm" | "m" | "inch" | "unknown";
+  bbox: { minX: number; minY: number; maxX: number; maxY: number };
+  layers: SceneLayer[];
+  entities: SceneEntity[];
+  truncated?: boolean;
+}
+
+// Calibration: real-world units per drawing unit (persisted per drawing)
+export interface DrawingCalibration {
+  unitsPerDrawingUnit: number;
+  unitLabel: string;
 }
 
 // ---------- Assets ----------
