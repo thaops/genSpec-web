@@ -583,13 +583,17 @@ export function AgentConsole({
       step: "Đang khởi động…",
       status: "running",
     });
-    void send(prompt, [], { displayText });
+    // Agent tasks (⚡ takeoff, generate-takeoff) are inherently edit actions —
+    // they must reach the edit handler regardless of the Edit toggle. Safety is
+    // preserved: with the toggle off the result is a ProposalCard the user
+    // still has to Apply, never an auto-apply.
+    void send(prompt, [], { displayText, forceEdit: true });
   }
 
   async function send(
     text?: string,
     attached?: File[],
-    opts?: { displayText?: string }
+    opts?: { displayText?: string; forceEdit?: boolean }
   ) {
     const message = (text ?? "").trim();
     const sentFiles = attached ?? [];
@@ -678,7 +682,7 @@ export function AgentConsole({
         sentFiles,
         {
           signal: ctrl.signal,
-          editPermission,
+          editPermission: opts?.forceEdit ? true : editPermission,
           onToken: (t: string) => {
             hasTokensRef.current = true;
             enqueueLiveText(t);
