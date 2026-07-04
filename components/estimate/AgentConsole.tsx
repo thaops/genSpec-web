@@ -244,10 +244,10 @@ export function AgentConsole({
     estimateRef.current = estimate;
   }, [estimate]);
 
-  // Load edit permission
+  // Load edit permission — defaults ON (agent-first); only an explicit "0" turns it off
   useEffect(() => {
     const saved = localStorage.getItem(EDIT_PERM_KEY(estimate.id));
-    if (saved === "1") setEditPermission(true);
+    setEditPermission(saved !== "0");
   }, [estimate.id]);
 
   // Load conversation history
@@ -1158,23 +1158,38 @@ export function AgentConsole({
           <HistoryIcon className="h-4 w-4" />
         </button>
         {/* Edit permission toggle */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-zinc-500">Edit</span>
+        {/* Mode: Đọc (chat-only) / Sửa (agent can propose & apply edits) */}
+        <div
+          className="flex items-center rounded-lg border border-zinc-800 bg-zinc-900/70 p-0.5"
+          title={
+            editPermission
+              ? "Chế độ Sửa — AI được tạo đề xuất và ghi vào bảng tính"
+              : "Chế độ Đọc — AI chỉ trả lời, không sửa dữ liệu"
+          }
+        >
           <button
             type="button"
-            onClick={toggleEditPermission}
-            title={editPermission ? "Tắt quyền chỉnh sửa" : "Bật quyền chỉnh sửa"}
+            onClick={() => editPermission && toggleEditPermission()}
             className={cn(
-              "relative h-5 w-9 rounded-full transition-colors",
-              editPermission ? "bg-accent-500" : "bg-zinc-700"
+              "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+              !editPermission
+                ? "bg-zinc-700 text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-300"
             )}
           >
-            <span
-              className={cn(
-                "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
-                editPermission ? "translate-x-4" : "translate-x-0.5"
-              )}
-            />
+            Đọc
+          </button>
+          <button
+            type="button"
+            onClick={() => !editPermission && toggleEditPermission()}
+            className={cn(
+              "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+              editPermission
+                ? "bg-accent-600 text-white"
+                : "text-zinc-500 hover:text-zinc-300"
+            )}
+          >
+            ✎ Sửa
           </button>
         </div>
         <button

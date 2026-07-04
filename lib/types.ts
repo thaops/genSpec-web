@@ -819,6 +819,8 @@ export interface DrawingCalibration {
   unitLabel: string;
   /** true = tự nhận từ đơn vị bản vẽ ($INSUNITS) — không persist, user hiệu chỉnh sẽ ghi đè */
   auto?: boolean;
+  /** User đã xác nhận dùng tỉ lệ auto này (gate ⚡ không hỏi lại) — persist theo bản vẽ */
+  confirmed?: boolean;
 }
 
 // ---------- Assets ----------

@@ -41,6 +41,8 @@ interface DrawingCanvasProps {
   reviewStates?: Record<string, "approved" | "rejected">;
   // Bump to re-open the CalibrationBar after the user previously skipped it
   calibrationPromptKey?: number;
+  // Bump to fit-to-content programmatically (e.g. ⚡ full takeoff starts)
+  fitSignal?: number;
 }
 
 const MIN_TEXT_PX = 4;
@@ -262,6 +264,7 @@ export function DrawingCanvas({
   focusObjectId,
   reviewStates,
   calibrationPromptKey,
+  fitSignal,
 }: DrawingCanvasProps) {
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -353,6 +356,12 @@ export function DrawingCanvas({
     st.current.fitScale = scale;
     scheduleRender();
   }, [scheduleRender]);
+
+  // External fit request (⚡ full takeoff zooms to the content being measured)
+  useEffect(() => {
+    if (fitSignal !== undefined && fitSignal > 0) fitView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitSignal]);
 
   // ── Rendering ──────────────────────────────────────────────────────────────
   function draw() {

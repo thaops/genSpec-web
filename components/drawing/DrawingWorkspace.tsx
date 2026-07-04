@@ -133,6 +133,7 @@ export function DrawingWorkspace({
   // Full takeoff flow
   const [fullTakeoffRunning, setFullTakeoffRunning] = useState(false);
   const [calibrationPromptKey, setCalibrationPromptKey] = useState(0);
+  const [fitSignal, setFitSignal] = useState(0);
   // Calibration gate dialog — holds the detected objects awaiting a decision
   const [calGateObjs, setCalGateObjs] = useState<DrawingObject[] | null>(null);
   // Track drawings already announced to avoid duplicate notifications
@@ -333,6 +334,8 @@ export function DrawingWorkspace({
     const included = objs.filter((o) => reviewStates[o.id] !== "rejected");
     if (included.length === 0) return;
     const summary = summarizeObjects(included, calibration);
+    // Zoom the canvas to the content being measured so the user SEES the scope
+    setFitSignal((k) => k + 1);
     // Structured prompt → page (ensures "Khối lượng" sheet + sends)
     onFullTakeoff?.(buildFullTakeoffAction(included, activeDrawingId, calibration, summary));
   }
@@ -347,9 +350,9 @@ export function DrawingWorkspace({
       if (objs.length === 0) objs = await handleDetect();
       if (objs.length === 0) return;
 
-      // b. Calibration gate — a manual calibration skips the dialog; otherwise
-      // ask: calibrate now / continue with auto scale (or raw drawing units).
-      if (!calibration || calibration.auto) {
+      // b. Calibration gate — skipped for a manual calibration OR an auto scale
+      // the user already confirmed once (persisted per drawing).
+      if (!calibration || (calibration.auto && !calibration.confirmed)) {
         setCalGateObjs(objs);
         return;
       }
@@ -486,6 +489,12 @@ export function DrawingWorkspace({
                 onClick={() => {
                   const objs = calGateObjs;
                   setCalGateObjs(null);
+                  // Remember the choice per drawing so the gate never re-asks
+                  handleCalibrated(
+                    calibration
+                      ? { ...calibration, confirmed: true }
+                      : { unitsPerDrawingUnit: 1, unitLabel: "đv", auto: true, confirmed: true }
+                  );
                   proceedFullTakeoff(objs);
                 }}
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-700"
@@ -595,6 +604,7 @@ export function DrawingWorkspace({
               focusObjectId={focusObjectId}
               reviewStates={reviewStates}
               calibrationPromptKey={calibrationPromptKey}
+              fitSignal={fitSignal}
             />
           )}
           {sceneLoading && (
