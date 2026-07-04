@@ -117,6 +117,18 @@ interface ProposalItem {
   timestamp: string;
 }
 
+/** Short affirmation → apply the pending proposal instead of calling the LLM
+    (which tends to regenerate a new proposal with made-up numbers). */
+const CONFIRM_RE =
+  /^(ok(e|ê)?|đồng ý|áp dụng|apply|làm đi|chốt|duyệt|ừ|yes|confirm)[\s\S]{0,20}$/i;
+function isConfirmIntent(message: string): boolean {
+  if (message.length > 40) return false;
+  const base = message.trim().replace(/[!.…?~]+$/g, "").trim();
+  // Trailing particles (nhé/nha/đi/luôn/thôi) don't change intent — try both
+  const stripped = base.replace(/\s+(nhé|nha|nhá|đi|luôn|thôi)$/i, "").trim();
+  return CONFIRM_RE.test(base) || CONFIRM_RE.test(stripped);
+}
+
 const EDIT_PERM_KEY = (id: string) => `genspec_edit_perm_${id}`;
 const TYPEWRITER_MS = 10; // ~100 chars/sec
 const COLLAPSED_KEY = "genspec_copilot_collapsed";
@@ -558,6 +570,36 @@ export function AgentConsole({
     const sentFiles = attached ?? [];
     if ((!message && sentFiles.length === 0) || streaming) return;
 
+    // Confirm-intent shortcut: "oke"/"làm đi"/"áp dụng"… + a pending proposal
+    // → apply it directly, skip the LLM round-trip entirely.
+    if (message && sentFiles.length === 0 && isConfirmIntent(message)) {
+      const pending = [...proposals]
+        .reverse()
+        .find((p) => p.state === "pending" && p.proposal.actions.length > 0);
+      if (pending) {
+        setShowHistory(false);
+        const ts = new Date().toISOString();
+        const confirmUserMsg: ConversationMessage = {
+          id: nextId(),
+          kind: "user",
+          text: opts?.displayText ?? message,
+          timestamp: ts,
+        };
+        const ackMsg: ConversationMessage = {
+          id: nextId(),
+          kind: "assistant",
+          text: `✓ Áp dụng đề xuất đang chờ (${pending.proposal.actions.length} thay đổi).`,
+          timestamp: ts,
+        };
+        const confirmThread = [...thread, confirmUserMsg, ackMsg];
+        setThread(confirmThread);
+        saveConversation(confirmThread);
+        await applyProposal(pending, confirmThread);
+        return;
+      }
+      // Confirmation with nothing pending → fall through to the normal LLM path
+    }
+
     // Cancel any running typewriter animation
     if (typewriterRef.current) {
       clearTimeout(typewriterRef.current);
@@ -831,7 +873,12 @@ export function AgentConsole({
     }
   }
 
-  async function applyProposal(item: ProposalItem) {
+  // baseThread: caller just appended messages in the same tick — the `thread`
+  // closure would be stale and drop them (confirm-intent shortcut passes it).
+  async function applyProposal(
+    item: ProposalItem,
+    baseThread?: ConversationMessage[]
+  ) {
     setProposals((prev) =>
       prev.map((x) =>
         x.msgId === item.msgId ? { ...x, state: "applying" } : x
@@ -881,7 +928,7 @@ export function AgentConsole({
             : x
         )
       );
-      const nextThread = thread.map((x) =>
+      const nextThread = (baseThread ?? thread).map((x) =>
         x.id === item.msgId
           ? { ...x, proposalState: "applied" as const, appliedCount: applied, patchId }
           : x
