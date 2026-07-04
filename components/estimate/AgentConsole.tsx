@@ -445,7 +445,9 @@ export function AgentConsole({
     return { row: Number(m[2]) - 1, col: col - 1 };
   }
 
-  const MAX_DRIVE_STEPS = 60;
+  // Time budget (not this cap) governs pacing — a full 9-column takeoff table
+  // is ~80 cells and must animate end-to-end instead of cutting off mid-row.
+  const MAX_DRIVE_STEPS = 150;
 
   // Non-cell actions that do NOT touch sheet cellData — after a full live
   // drive of the cells, the grid is already correct and must not be reloaded
@@ -465,12 +467,20 @@ export function AgentConsole({
    * otherwise the caller must fall back to a full editor reload.
    */
   async function driveActions(actions: Action[]): Promise<DriveResult> {
-    const driver = workbookDriver?.current;
-    if (!driver) return { fullyDriven: false, aborted: false };
     const cellActs = actions.filter(
       (a): a is Extract<Action, { type: "update_cells" }> => a.type === "update_cells"
     );
     if (cellActs.length === 0) return { fullyDriven: false, aborted: false };
+    // The workbook pane may not be mounted (user applied from the drawing
+    // view) — navigate to the target sheet first, then wait for Univer to
+    // initialise so the animation actually plays instead of a silent apply.
+    onAgentNavigate?.(cellActs[0].sheetId);
+    let driver = workbookDriver?.current;
+    for (let i = 0; i < 20 && !driver; i++) {
+      await sleep(200);
+      driver = workbookDriver?.current;
+    }
+    if (!driver) return { fullyDriven: false, aborted: false };
     driveAbortRef.current = false;
     let aborted = false;
 
