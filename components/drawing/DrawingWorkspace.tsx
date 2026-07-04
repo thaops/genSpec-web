@@ -21,6 +21,7 @@ import type { TakeoffEngineAssumptions } from "@/lib/api";
 import {
   TakeoffAssumptionsPopover,
   loadTakeoffAssumptions,
+  DEFAULT_TAKEOFF_ASSUMPTIONS,
 } from "./TakeoffAssumptions";
 import { AlertTriangle, Ruler, Settings2, Sparkles, Zap } from "lucide-react";
 
@@ -462,14 +463,10 @@ export function DrawingWorkspace({
     if (!activeDrawingId || fullTakeoffRunning || detecting || takeoffBusy) return;
 
     if (onEngineTakeoff) {
-      // First ⚡ on this drawing → small popover with defaults (Enter runs);
-      // afterwards the saved assumptions are reused without asking.
+      // Fully automatic: run with saved assumptions or sensible defaults —
+      // never interrupt the click. Tuning lives behind the ⚙ button.
       const saved = loadTakeoffAssumptions(activeDrawingId);
-      if (!saved) {
-        setAssumpOpen(true);
-        return;
-      }
-      await runEngineTakeoff(saved);
+      await runEngineTakeoff(saved ?? DEFAULT_TAKEOFF_ASSUMPTIONS);
       return;
     }
 

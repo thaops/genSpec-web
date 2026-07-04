@@ -94,7 +94,7 @@ export function TakeoffAssumptionsPopover({ drawingId, onRun, onClose }: Props) 
               type="number"
               autoFocus={i === 0}
               min={0.01}
-              step={f.step}
+              step="any"
               value={values[f.key]}
               onChange={(e) =>
                 setValues((prev) => ({
