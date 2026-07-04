@@ -130,8 +130,14 @@ export function buildFullTakeoffAction(
   objects: DrawingObject[],
   drawingId: string,
   calibration: DrawingCalibration | null,
-  summary: ObjectGroupSummary[]
+  summary: ObjectGroupSummary[],
+  // Sync with the engine's user-set assumptions so the LLM fallback never
+  // silently computes with different constants than the deterministic path
+  assumptions?: { floorHeight: number; wallThickness: number; beamDepth: number }
 ): string {
+  const H = assumptions?.floorHeight ?? 3.3;
+  const T = assumptions?.wallThickness ?? 0.2;
+  const D = assumptions?.beamDepth ?? 0.4;
   const calLine = calibration
     ? `Tỉ lệ đã hiệu chỉnh: 1 đơn vị bản vẽ = ${calibration.unitsPerDrawingUnit} ${calibration.unitLabel} (số liệu bên dưới đã quy đổi ra ${calibration.unitLabel}).`
     : "CHƯA HIỆU CHỈNH TỈ LỆ — số liệu bên dưới theo ĐƠN VỊ BẢN VẼ, không phải mét. Ghi rõ điều này trong ghi chú.";
@@ -157,8 +163,13 @@ export function buildFullTakeoffAction(
     `Yêu cầu:`,
     `1. Tạo bảng bóc khối lượng đầy đủ vào sheet "Khối lượng" theo mẫu cột: STT, Mã hiệu định mức, Tên công tác, Đơn vị, Khối lượng, Ghi chú.`,
     `2. Mỗi dòng ghi rõ (cột Ghi chú) suy luận từ nhóm đối tượng nào trong bảng trên.`,
-    `3. KHÔNG bịa kích thước không có trong dữ liệu. Nếu thiếu chiều cao tầng, dùng giả định 3.3m và GHI RÕ trong Ghi chú đây là giả định.`,
+    `3. KHÔNG bịa kích thước không có trong dữ liệu. Nếu thiếu chiều cao tầng, dùng giả định ${H}m và GHI RÕ trong Ghi chú đây là giả định.`,
     `4. TRUY VẾT (BẮT BUỘC): cột Ghi chú của MỖI dòng phải chứa đúng token truy vết của nhóm nguồn (cột Token ở bảng trên, vd [nhóm:wall]). Giữ nguyên dấu ngoặc vuông và chữ thường, KHÔNG dịch token.`,
+    `5. KHỐI LƯỢNG (BẮT BUỘC): cột Khối lượng của MỖI dòng phải là MỘT CON SỐ, không được để trống. Đơn vị phải khớp cách tính:`,
+    `   - Tường/trát: diện tích (m²) = tổng chiều dài × cao ${H}m; nếu quy ra m³ thì nhân thêm chiều dày (giả định ${T}m, ghi rõ).`,
+    `   - Cột/dầm: m³ = tổng diện tích mặt cắt × cao ${H}m (cột) hoặc diện tích chiếm chỗ × chiều sâu giả định ${D}m (dầm) — ghi rõ công thức trong Ghi chú.`,
+    `   - Cửa: m² theo tổng diện tích đối tượng. TUYỆT ĐỐI không ghi đơn vị m3 cho một con số vốn là diện tích.`,
+    `6. DÒNG ĐẦU message (BẮT BUỘC): "⚠ BẢN NHÁP AI — số liệu do AI tính từ bảng tổng hợp, cần đối chiếu trước khi dùng."`,
   ].join("\n");
 }
 

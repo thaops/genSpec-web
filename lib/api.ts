@@ -567,6 +567,37 @@ export function exportTHDT(id: string): Promise<Blob> {
   return downloadBlob(`/estimates/${id}/export-thdt`);
 }
 
+// ---------- Deterministic takeoff engine (⚡ Bóc toàn bộ) ----------
+// Fast (<2s) geometry-based takeoff computed on the BE — returns a
+// CopilotProposal (NOT applied); FE injects it into the chat as a pending
+// ProposalCard the user applies like any AI proposal.
+
+export interface TakeoffEngineAssumptions {
+  /** Chiều cao tầng (m) */
+  floorHeight: number;
+  /** Chiều dày tường (m) */
+  wallThickness: number;
+  /** Chiều sâu dầm (m) */
+  beamDepth: number;
+}
+
+export interface TakeoffEngineBody {
+  drawingId: string;
+  unitsPerDrawingUnit: number;
+  assumptions: TakeoffEngineAssumptions;
+  rejectedObjectIds?: string[];
+}
+
+export function runTakeoffEngine(
+  estimateId: string,
+  body: TakeoffEngineBody
+): Promise<CopilotProposal> {
+  return request<CopilotProposal>(`/estimates/${estimateId}/takeoff-engine`, {
+    method: "POST",
+    body,
+  });
+}
+
 // ---------- Drawing Revision Compare V2 (M3-B) ----------
 // Standalone (kept out of the `api` object so this file stays append-only).
 // Compares `drawingId` (current/new) against `againstDrawingId` (base/old).

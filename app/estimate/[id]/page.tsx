@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
-import { api, ApiError, exportTHDT, triggerDownload } from "@/lib/api";
+import { api, ApiError, exportTHDT, runTakeoffEngine, triggerDownload } from "@/lib/api";
+import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { useToast } from "@/components/ui/Toast";
@@ -29,7 +30,7 @@ import { buildGenerateTakeoffAction } from "@/lib/actions/AgentActions";
 import { ExplorerPanel } from "@/components/estimate/explorer/ExplorerPanel";
 import type { WorkspaceView } from "@/components/estimate/explorer/ExplorerPanel";
 import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
-import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
+import type { DrawingViewportInfo, EngineTakeoffPayload } from "@/components/drawing/DrawingWorkspace";
 import { SplitView } from "@/components/drawing/SplitView";
 import { AlertTriangle, BarChart3 } from "lucide-react";
 import type { DrawingObjectType } from "@/lib/types";
@@ -232,7 +233,12 @@ export default function EstimateEditorPage() {
 
   // Agent navigates the workspace: switch to workbook view + target sheet
   const handleAgentNavigate = useCallback((sheetId: string) => {
-    setViewMode("workbook");
+    // In split mode the workbook pane is already visible — keep the drawing
+    // side on screen so the user watches both the source and the live writes.
+    setSplitMode((split) => {
+      if (!split) setViewMode("workbook");
+      return split;
+    });
     setActiveSheetId((prev) => (prev === sheetId ? prev : sheetId));
   }, []);
 
@@ -517,9 +523,9 @@ export default function EstimateEditorPage() {
     );
   }
 
-  // "⚡ Bóc toàn bộ": ensure the "Khối lượng" sheet exists, show workbook +
-  // drawing side-by-side, then hand the structured prompt to the copilot.
-  async function handleFullTakeoff(prompt: string) {
+  // Ensure the "Khối lượng" sheet exists and make it active (shared by both
+  // ⚡ takeoff paths).
+  async function ensureQuantitySheet() {
     if (!estimate) return;
     const existing = (estimate.sheets ?? []).find((s) => s.name === "Khối lượng");
     if (existing) {
@@ -533,6 +539,13 @@ export default function EstimateEditorPage() {
       await apply([{ type: "set_sheets", sheets: [...(estimate.sheets ?? []), newSheet] }]);
       setActiveSheetId(newSheet.id);
     }
+  }
+
+  // "⚡ Bóc toàn bộ" — LEGACY LLM path. Kept intact as the fallback when the
+  // deterministic engine errors (see handleEngineTakeoff catch).
+  async function handleFullTakeoff(prompt: string) {
+    if (!estimate) return;
+    await ensureQuantitySheet();
     // Split: workbook on the left, drawing on the right.
     // Silent task — do NOT force the sidebar open; the collapsed rail pulses.
     setViewMode("drawing");
@@ -547,6 +560,69 @@ export default function EstimateEditorPage() {
         }),
       300
     );
+  }
+
+  // "⚡ Bóc toàn bộ" — ENGINE path (deterministic, <2s, computed geometry).
+  // No streaming: the BE returns a ready CopilotProposal that is injected into
+  // the chat as a pending ProposalCard; the user applies it (or "oke làm đi").
+  async function handleEngineTakeoff(payload: EngineTakeoffPayload) {
+    if (!estimate) return;
+    await ensureQuantitySheet();
+    setViewMode("drawing");
+    setSplitMode(true);
+    const drawingName = drawings.find((d) => d.id === payload.drawingId)?.name;
+    const displayText = `⚡ Bóc khối lượng toàn bộ bản vẽ${drawingName ? ` ${drawingName}` : ""}`;
+    const label = "Bóc khối lượng (máy tính)";
+    setAgentTask({ label, step: "Đang đo hình học…", status: "running" });
+    // Engine is fast — the pill is the primary feedback; the JobCenter entry
+    // exists for history only (done almost immediately).
+    const job = addJob({
+      id: `takeoff-engine-${Date.now()}`,
+      type: "agent_task",
+      status: "processing",
+      progress: 30,
+      message: label,
+    });
+    const start = Date.now();
+    try {
+      const proposal = await runTakeoffEngine(estimate.id, {
+        drawingId: payload.drawingId,
+        unitsPerDrawingUnit: payload.unitsPerDrawingUnit,
+        assumptions: payload.assumptions,
+        rejectedObjectIds: payload.rejectedObjectIds,
+      });
+      const proposalMsgId = copilotRef.current?.injectProposal(proposal, displayText);
+      updateJob(job.id, {
+        status: "done",
+        progress: 100,
+        message: `Hoàn tất — ${proposal.actions.length} đề xuất thay đổi`,
+        durationMs: Date.now() - start,
+      });
+      setAgentTask({
+        label,
+        step: proposal.actions.length > 0
+          ? `${proposal.actions.length} đề xuất thay đổi`
+          : "Hoàn tất",
+        status: "done",
+        proposalMsgId,
+      });
+    } catch (err) {
+      const msg = (err as ApiError).message;
+      updateJob(job.id, { status: "failed", message: msg, durationMs: Date.now() - start });
+      setAgentTask({ label, step: msg, status: "error" });
+      toast.error("Engine bóc khối lượng lỗi", `${msg} — chuyển sang AI bóc thay.`);
+      // FALLBACK: replay the legacy LLM pipeline with the prompt the workspace
+      // already built (runTask drives its own pill/JobCenter lifecycle).
+      setTimeout(
+        () =>
+          copilotRef.current?.runTask({
+            prompt: payload.fallbackPrompt,
+            displayText,
+            jobLabel: "Bóc khối lượng",
+          }),
+        300
+      );
+    }
   }
 
   function handleObjectsLoaded(objects: DrawingObject[]) {
@@ -714,6 +790,7 @@ export default function EstimateEditorPage() {
       onDrawingsChange={setDrawings}
       onObjectsLoaded={handleObjectsLoaded}
       onFullTakeoff={handleFullTakeoff}
+      onEngineTakeoff={handleEngineTakeoff}
       takeoffBusy={agentTask?.status === "running"}
       onJumpToBoq={handleJumpToBoq}
       externalFocus={drawingFocus}

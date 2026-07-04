@@ -79,6 +79,11 @@ export interface AgentHandle {
       progress is mirrored into the JobCenter, sidebar is NOT force-opened. */
   runTask: (opts: RunTaskOptions) => void;
   injectMessage: (msg: Pick<ConversationMessage, "kind" | "text">) => void;
+  /** Inject a ready-made proposal (e.g. from the deterministic takeoff engine)
+      into the thread as user bubble (displayText) + pending ProposalCard —
+      NO streaming; the user applies it like any AI proposal (or confirms via
+      the "oke làm đi" shortcut). Returns the proposal message id (pill deep-link). */
+  injectProposal: (proposal: CopilotProposal, displayText: string) => string;
   /** Undo the patch created by an applied AI message (per-message undo logic) */
   undoPatch: (patchId: string) => void;
 }
@@ -439,7 +444,12 @@ export function AgentConsole({
     return { row: Number(m[2]) - 1, col: col - 1 };
   }
 
-  const MAX_DRIVE_STEPS = 40;
+  const MAX_DRIVE_STEPS = 60;
+
+  // Non-cell actions that do NOT touch sheet cellData — after a full live
+  // drive of the cells, the grid is already correct and must not be reloaded
+  // (a reinit right after the animation destroys the "AI is typing" feel).
+  const SHEET_TOUCHING_TYPES = new Set(["set_sheets", "clear"]);
 
   interface DriveResult {
     fullyDriven: boolean;
@@ -487,8 +497,10 @@ export function AgentConsole({
     return {
       fullyDriven:
         !aborted &&
-        actions.length === cellActs.length &&
-        cellActs.length <= MAX_DRIVE_STEPS,
+        cellActs.length <= MAX_DRIVE_STEPS &&
+        !actions.some(
+          (a) => a.type !== "update_cells" && SHEET_TOUCHING_TYPES.has(a.type)
+        ),
       aborted,
     };
   }
@@ -1087,6 +1099,33 @@ export function AgentConsole({
         };
         setThread((prev) => [...prev, full]);
         setShowHistory(false);
+      },
+      injectProposal: (proposal, displayText) => {
+        const ts = new Date().toISOString();
+        const userMsg: ConversationMessage = {
+          id: nextId(),
+          kind: "user",
+          text: displayText,
+          timestamp: ts,
+        };
+        const msgId = nextId();
+        const proposalMsg: ConversationMessage = {
+          id: msgId,
+          kind: "proposal",
+          text: proposal.message,
+          proposal,
+          proposalState: "pending",
+          timestamp: ts,
+        };
+        const nextThread = [...thread, userMsg, proposalMsg];
+        setThread(nextThread);
+        setProposals((prev) => [
+          ...prev,
+          { msgId, proposal, state: "pending", timestamp: ts },
+        ]);
+        setShowHistory(false);
+        saveConversation(nextThread);
+        return msgId;
       },
       undoPatch: (patchId: string) => {
         // Reuse per-message undo when the source message is in the thread;

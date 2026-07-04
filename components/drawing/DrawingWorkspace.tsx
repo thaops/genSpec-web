@@ -17,7 +17,12 @@ import { useToast } from "@/components/ui/Toast";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { buildFullTakeoffAction } from "@/lib/actions/AgentActions";
 import { summarizeObjects } from "@/lib/drawing/objectMeasure";
-import { AlertTriangle, Ruler, Sparkles, Zap } from "lucide-react";
+import type { TakeoffEngineAssumptions } from "@/lib/api";
+import {
+  TakeoffAssumptionsPopover,
+  loadTakeoffAssumptions,
+} from "./TakeoffAssumptions";
+import { AlertTriangle, Ruler, Settings2, Sparkles, Zap } from "lucide-react";
 
 // Quy đổi đơn vị bản vẽ ($INSUNITS) → mét
 const INSUNITS_TO_METERS: Record<string, number> = {
@@ -60,6 +65,15 @@ function DrawingProcessingState({ drawing }: { drawing: Drawing }) {
   );
 }
 
+export interface EngineTakeoffPayload {
+  drawingId: string;
+  unitsPerDrawingUnit: number;
+  assumptions: TakeoffEngineAssumptions;
+  rejectedObjectIds: string[];
+  /** Legacy LLM prompt — page falls back to runTask(fallbackPrompt) on engine error */
+  fallbackPrompt: string;
+}
+
 export interface DrawingViewportInfo {
   drawingId: string;
   page: number;
@@ -84,8 +98,13 @@ interface DrawingWorkspaceProps {
   onViewportChange?: (info: DrawingViewportInfo) => void;
   // Called once when a drawing first loads objects (auto-detection complete)
   onObjectsLoaded?: (objects: DrawingObject[]) => void;
-  // "⚡ Bóc toàn bộ": workspace builds the structured prompt, page sends it
+  // "⚡ Bóc toàn bộ" (legacy LLM path): workspace builds the structured
+  // prompt, page sends it. Kept as the FALLBACK when the engine errors.
   onFullTakeoff?: (prompt: string) => void;
+  // "⚡ Bóc toàn bộ" (engine path): deterministic geometry takeoff on the BE.
+  // When provided, it takes precedence over onFullTakeoff; fallbackPrompt is
+  // the legacy LLM prompt the page replays if the engine call fails.
+  onEngineTakeoff?: (payload: EngineTakeoffPayload) => void;
   // Agent task in-flight (page-level) → disable takeoff triggers
   takeoffBusy?: boolean;
   // Traceability: drawing → BOQ jump requested from the Object Inspector
@@ -107,6 +126,7 @@ export function DrawingWorkspace({
   onViewportChange,
   onObjectsLoaded,
   onFullTakeoff,
+  onEngineTakeoff,
   takeoffBusy = false,
   onJumpToBoq,
   externalFocus,
@@ -133,6 +153,8 @@ export function DrawingWorkspace({
   // Full takeoff flow
   const [fullTakeoffRunning, setFullTakeoffRunning] = useState(false);
   const [calibrationPromptKey, setCalibrationPromptKey] = useState(0);
+  // Engine takeoff: assumptions popover (first ⚡ per drawing, or via ⚙)
+  const [assumpOpen, setAssumpOpen] = useState(false);
   const [fitSignal, setFitSignal] = useState(0);
   // Calibration gate dialog — holds the detected objects awaiting a decision
   // Track drawings already announced to avoid duplicate notifications
@@ -250,6 +272,7 @@ export function DrawingWorkspace({
   // Per-drawing review states persisted in localStorage
   useEffect(() => {
     setReviewOpen(false);
+    setAssumpOpen(false);
     setFocusObjectId(undefined);
     if (!activeDrawingId) { setReviewStates({}); return; }
     try {
@@ -361,27 +384,89 @@ export function DrawingWorkspace({
     onFullTakeoff?.(buildFullTakeoffAction(included, activeDrawingId, calibration, summary));
   }
 
-  // "⚡ Bóc toàn bộ": detect if needed → calibration gate → measure → prompt
-  async function handleFullTakeoff() {
+  // a. Ensure objects — run detection when nothing has been detected yet
+  async function ensureObjects(): Promise<DrawingObject[]> {
+    if (objects.length > 0) return objects;
+    return handleDetect();
+  }
+
+  // b. No blocking gate — ⚡ is one click. Auto/raw scale just gets a
+  // non-blocking hint; manual calibration (2 clicks on a known dim) is
+  // always available from the toolbar.
+  function toastScaleHint() {
+    if (!calibration || calibration.auto) {
+      toast.success(
+        "Đang bóc với tỉ lệ tự nhận",
+        calibration
+          ? `1 đơn vị bản vẽ = ${calibration.unitsPerDrawingUnit} m. Hiệu chỉnh 2 điểm nếu số đo lệch.`
+          : "Chưa có tỉ lệ — số liệu theo đơn vị bản vẽ."
+      );
+    }
+  }
+
+  // Engine path: detect if needed → measure scope → deterministic BE call.
+  // The legacy LLM prompt rides along as fallbackPrompt (engine error → page
+  // replays the old runTask pipeline).
+  async function runEngineTakeoff(assumptions: TakeoffEngineAssumptions) {
     if (!activeDrawingId || fullTakeoffRunning || detecting || takeoffBusy) return;
     setFullTakeoffRunning(true);
     try {
-      // a. Ensure objects — run detection when nothing has been detected yet
-      let objs = objects;
-      if (objs.length === 0) objs = await handleDetect();
+      const objs = await ensureObjects();
       if (objs.length === 0) return;
-
-      // b. No blocking gate — ⚡ is one click. Auto/raw scale just gets a
-      // non-blocking hint; manual calibration (2 clicks on a known dim) is
-      // always available from the toolbar.
-      if (!calibration || calibration.auto) {
-        toast.success(
-          "Đang bóc với tỉ lệ tự nhận",
-          calibration
-            ? `1 đơn vị bản vẽ = ${calibration.unitsPerDrawingUnit} m. Hiệu chỉnh 2 điểm nếu số đo lệch.`
-            : "Chưa có tỉ lệ — số liệu theo đơn vị bản vẽ."
+      // Engine measures in real meters — a silent factor=1 would be off by
+      // orders of magnitude. No usable scale → block and open calibration.
+      if (!calibration) {
+        toast.error(
+          "Chưa có tỉ lệ bản vẽ",
+          "Không nhận được đơn vị từ file. Hiệu chỉnh 2 điểm trên một đoạn đã biết kích thước rồi bóc lại."
         );
+        setCalibrationPromptKey((k) => k + 1);
+        return;
       }
+      toastScaleHint();
+      const included = objs.filter((o) => reviewStates[o.id] !== "rejected");
+      if (included.length === 0) return;
+      const rejectedObjectIds = objs
+        .filter((o) => reviewStates[o.id] === "rejected")
+        .map((o) => o.id);
+      const summary = summarizeObjects(included, calibration);
+      // Zoom the canvas to the content being measured so the user SEES the scope
+      setFitSignal((k) => k + 1);
+      onEngineTakeoff?.({
+        drawingId: activeDrawingId,
+        unitsPerDrawingUnit: calibration.unitsPerDrawingUnit,
+        assumptions,
+        rejectedObjectIds,
+        fallbackPrompt: buildFullTakeoffAction(included, activeDrawingId, calibration, summary, assumptions),
+      });
+    } finally {
+      setFullTakeoffRunning(false);
+    }
+  }
+
+  // "⚡ Bóc toàn bộ": engine path when the page wires onEngineTakeoff,
+  // otherwise the legacy LLM path (detect if needed → measure → prompt).
+  async function handleFullTakeoff() {
+    if (!activeDrawingId || fullTakeoffRunning || detecting || takeoffBusy) return;
+
+    if (onEngineTakeoff) {
+      // First ⚡ on this drawing → small popover with defaults (Enter runs);
+      // afterwards the saved assumptions are reused without asking.
+      const saved = loadTakeoffAssumptions(activeDrawingId);
+      if (!saved) {
+        setAssumpOpen(true);
+        return;
+      }
+      await runEngineTakeoff(saved);
+      return;
+    }
+
+    // Legacy LLM path (no engine handler wired)
+    setFullTakeoffRunning(true);
+    try {
+      const objs = await ensureObjects();
+      if (objs.length === 0) return;
+      toastScaleHint();
       proceedFullTakeoff(objs);
     } finally {
       setFullTakeoffRunning(false);
@@ -506,15 +591,37 @@ export function DrawingWorkspace({
               {detecting ? <Spinner className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
               <span>Detect</span>
             </button>
-            <button
-              onClick={handleFullTakeoff}
-              disabled={!isReady || fullTakeoffRunning || detecting || takeoffBusy}
-              title="Bóc khối lượng toàn bộ bản vẽ vào sheet 'Khối lượng'"
-              className="flex items-center gap-1 px-2 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white disabled:opacity-50 text-[11px] transition-colors"
-            >
-              {fullTakeoffRunning || takeoffBusy ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-              <span>{takeoffBusy ? "Đang bóc…" : "Bóc toàn bộ"}</span>
-            </button>
+            <div className="relative flex items-center gap-0.5">
+              <button
+                onClick={handleFullTakeoff}
+                disabled={!isReady || fullTakeoffRunning || detecting || takeoffBusy}
+                title="Bóc khối lượng toàn bộ bản vẽ vào sheet 'Khối lượng'"
+                className="flex items-center gap-1 px-2 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white disabled:opacity-50 text-[11px] transition-colors"
+              >
+                {fullTakeoffRunning || takeoffBusy ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
+                <span>{takeoffBusy ? "Đang bóc…" : "Bóc toàn bộ"}</span>
+              </button>
+              {onEngineTakeoff && (
+                <button
+                  onClick={() => setAssumpOpen((v) => !v)}
+                  disabled={!isReady}
+                  title="Chỉnh giả định bóc khối lượng (cao tầng, dày tường, sâu dầm)"
+                  className="flex items-center px-1 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 disabled:opacity-50 transition-colors"
+                >
+                  <Settings2 className="h-3 w-3" />
+                </button>
+              )}
+              {assumpOpen && activeDrawingId && (
+                <TakeoffAssumptionsPopover
+                  drawingId={activeDrawingId}
+                  onRun={(a) => {
+                    setAssumpOpen(false);
+                    void runEngineTakeoff(a);
+                  }}
+                  onClose={() => setAssumpOpen(false)}
+                />
+              )}
+            </div>
             <button
               onClick={() => setReviewOpen((v) => !v)}
               disabled={objects.length === 0}
