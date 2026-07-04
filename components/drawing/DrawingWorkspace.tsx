@@ -135,7 +135,6 @@ export function DrawingWorkspace({
   const [calibrationPromptKey, setCalibrationPromptKey] = useState(0);
   const [fitSignal, setFitSignal] = useState(0);
   // Calibration gate dialog — holds the detected objects awaiting a decision
-  const [calGateObjs, setCalGateObjs] = useState<DrawingObject[] | null>(null);
   // Track drawings already announced to avoid duplicate notifications
   const announcedDrawings = useRef<Set<string>>(new Set());
 
@@ -214,16 +213,38 @@ export function DrawingWorkspace({
     }
   }, [activeDrawingId]);
 
-  // $INSUNITS auto-scale: khi chưa có calibration và scene khai báo đơn vị,
-  // tự tạo calibration mặc định (auto — KHÔNG persist localStorage).
-  // Calibration user làm tay (handleCalibrated) luôn ghi đè và persist như cũ.
+  // $INSUNITS auto-scale với plausibility check: header DXF/DWG hay khai sai
+  // đơn vị (bản vẽ VN vẽ mm nhưng $INSUNITS=inch) — chọn đơn vị cho ra kích
+  // thước công trình hợp lý (2m–5km); không hợp lý → thử mm rồi m.
+  // Auto calibration KHÔNG persist; hiệu chỉnh tay luôn ghi đè.
   useEffect(() => {
-    if (!scene || scene.units === "unknown") return;
-    const factor = INSUNITS_TO_METERS[scene.units];
+    if (!scene) return;
+    const w = (scene.bbox?.maxX ?? 0) - (scene.bbox?.minX ?? 0);
+    const h = (scene.bbox?.maxY ?? 0) - (scene.bbox?.minY ?? 0);
+    const span = Math.max(w, h) || 0;
+    const plausible = (f: number) => span * f >= 2 && span * f <= 5000;
+    const declared = scene.units !== "unknown" ? INSUNITS_TO_METERS[scene.units] : undefined;
+    let factor = declared;
+    let inferred = false;
+    if (span > 0 && (factor == null || !plausible(factor))) {
+      const guess = [0.001, 1, 0.0254].find((f) => plausible(f));
+      if (guess != null) {
+        factor = guess;
+        inferred = true;
+      }
+    }
     if (factor == null) return;
     setCalibration((prev) =>
-      prev ?? { unitsPerDrawingUnit: factor, unitLabel: "m", auto: true }
+      prev ?? { unitsPerDrawingUnit: factor!, unitLabel: "m", auto: true }
     );
+    if (inferred && declared != null && factor !== declared) {
+      const name = factor === 0.001 ? "mm" : factor === 1 ? "m" : "inch";
+      toast.error(
+        "Đơn vị bản vẽ nghi khai sai",
+        `Header ghi "${scene.units}" nhưng kích thước không hợp lý — đang dùng ${name}. Hiệu chỉnh 2 điểm nếu số đo lệch.`
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
 
   // Per-drawing review states persisted in localStorage
@@ -350,13 +371,17 @@ export function DrawingWorkspace({
       if (objs.length === 0) objs = await handleDetect();
       if (objs.length === 0) return;
 
-      // b. Calibration gate — skipped for a manual calibration OR an auto scale
-      // the user already confirmed once (persisted per drawing).
-      if (!calibration || (calibration.auto && !calibration.confirmed)) {
-        setCalGateObjs(objs);
-        return;
+      // b. No blocking gate — ⚡ is one click. Auto/raw scale just gets a
+      // non-blocking hint; manual calibration (2 clicks on a known dim) is
+      // always available from the toolbar.
+      if (!calibration || calibration.auto) {
+        toast.success(
+          "Đang bóc với tỉ lệ tự nhận",
+          calibration
+            ? `1 đơn vị bản vẽ = ${calibration.unitsPerDrawingUnit} m. Hiệu chỉnh 2 điểm nếu số đo lệch.`
+            : "Chưa có tỉ lệ — số liệu theo đơn vị bản vẽ."
+        );
       }
-
       proceedFullTakeoff(objs);
     } finally {
       setFullTakeoffRunning(false);
@@ -455,65 +480,6 @@ export function DrawingWorkspace({
 
   return (
     <div className="relative flex h-full overflow-hidden">
-      {/* Calibration gate — asked once before ⚡ full takeoff when only an
-          auto scale (or none) is available */}
-      {calGateObjs && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-          <div className="animate-slide-up w-full max-w-sm rounded-2xl border border-zinc-700/80 bg-zinc-900 p-5 shadow-2xl">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400" />
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-zinc-100">
-                  Bản vẽ chưa hiệu chỉnh tỉ lệ chính xác
-                </h3>
-                <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-                  {calibration?.auto
-                    ? `Đang dùng tỉ lệ tự nhận từ đơn vị bản vẽ (${scene?.units ?? "?"} → ${calibration.unitLabel}). Hiệu chỉnh tay cho số liệu chính xác hơn.`
-                    : "Số liệu bóc sẽ theo ĐƠN VỊ BẢN VẼ, không phải mét. Hiệu chỉnh bằng cách click 2 điểm trên đoạn đã biết kích thước."}
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-col gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setCalGateObjs(null);
-                  setCalibrationPromptKey((k) => k + 1); // re-open CalibrationBar
-                }}
-                className="w-full rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-500"
-              >
-                Hiệu chỉnh ngay
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const objs = calGateObjs;
-                  setCalGateObjs(null);
-                  // Remember the choice per drawing so the gate never re-asks
-                  handleCalibrated(
-                    calibration
-                      ? { ...calibration, confirmed: true }
-                      : { unitsPerDrawingUnit: 1, unitLabel: "đv", auto: true, confirmed: true }
-                  );
-                  proceedFullTakeoff(objs);
-                }}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-700"
-              >
-                {calibration?.auto
-                  ? `Dùng tỉ lệ tự nhận (${scene?.units ?? calibration.unitLabel})`
-                  : "Tiếp tục với đơn vị bản vẽ"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setCalGateObjs(null)}
-                className="w-full rounded-lg px-3 py-1.5 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-              >
-                Huỷ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Vertical toolbar */}
       <DrawingToolbar
