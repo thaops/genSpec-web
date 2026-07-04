@@ -610,6 +610,12 @@ export default function EstimateEditorPage() {
       const msg = (err as ApiError).message;
       updateJob(job.id, { status: "failed", message: msg, durationMs: Date.now() - start });
       setAgentTask({ label, step: msg, status: "error" });
+      // Scale problems must NOT fall back to the LLM — it would compute from
+      // the same wrong measurements and produce confident garbage.
+      if (/tỉ lệ|ti le/i.test(msg)) {
+        toast.error("Tỉ lệ bản vẽ chưa đúng", msg);
+        return;
+      }
       toast.error("Engine bóc khối lượng lỗi", `${msg} — chuyển sang AI bóc thay.`);
       // FALLBACK: replay the legacy LLM pipeline with the prompt the workspace
       // already built (runTask drives its own pill/JobCenter lifecycle).
