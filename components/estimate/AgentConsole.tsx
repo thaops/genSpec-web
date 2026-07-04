@@ -13,7 +13,7 @@ import type {
   Estimate,
   ReviewFinding,
 } from "@/lib/types";
-import type { WorkbookDriver } from "./WorkbookEditor";
+import { estimateTypeSteps, type WorkbookDriver } from "./WorkbookEditor";
 import type { DrawingViewportInfo } from "@/components/drawing/DrawingWorkspace";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -473,22 +473,61 @@ export function AgentConsole({
     if (cellActs.length === 0) return { fullyDriven: false, aborted: false };
     driveAbortRef.current = false;
     let aborted = false;
+
+    // ── Time budget: pick a pacing mode so the whole drive stays under ~25s ──
+    const BUDGET_MS = 25_000;
+    const LOOK_MS = 140; // "đang nhìn" pause after the cursor lands
+    // A cell is "rich" (worth the typing animation) if it's a formula or a
+    // long text (Tên công tác, Diễn giải) — not STT / đơn vị / short numbers.
+    const isRich = (v: string | number) =>
+      typeof v === "string" && (v.startsWith("=") || v.length >= 12);
+    const steps = cellActs.slice(0, MAX_DRIVE_STEPS).map((a) => {
+      const rc = a1ToRowCol(a.cell);
+      return { a, rc, rich: isRich(a.newValue), nSteps: estimateTypeSteps(a.newValue) };
+    });
+    // Between-cell pause: same row = quick horizontal sweep, new row = "xuống dòng"
+    const gapAfter = (i: number) => {
+      const next = steps[i + 1];
+      if (!next?.rc || !steps[i].rc) return 100;
+      return next.a.sheetId === steps[i].a.sheetId && next.rc.row === steps[i].rc!.row
+        ? 80
+        : 200;
+    };
+    const totalCost = (typeAll: boolean, msPerStep: number) =>
+      steps.reduce((sum, s, i) => {
+        const typed = typeAll || s.rich;
+        return sum + (typed ? LOOK_MS + s.nSteps * msPerStep + gapAfter(i) : 100);
+      }, 0);
+    let typeAll = true; // full mode: every cell gets the typing animation
+    let msPerStep = 90;
+    if (totalCost(true, 90) > BUDGET_MS) typeAll = false; // fast: type rich cells only
+    if (!typeAll && totalCost(false, 90) > BUDGET_MS) msPerStep = 45;
+
     driver.beginDrive();
     try {
-      for (const a of cellActs.slice(0, MAX_DRIVE_STEPS)) {
+      for (let i = 0; i < steps.length; i++) {
         if (driveAbortRef.current) {
           aborted = true;
           break;
         }
-        const rc = a1ToRowCol(a.cell);
+        const { a, rc, rich } = steps[i];
         if (!rc) continue;
         onAgentNavigate?.(a.sheetId);
-        setDriveStatus(`Đang sửa ô ${a.cell} → ${a.newValue}`);
         driver.focusCell(a.sheetId, rc.row, rc.col);
-        await sleep(320);
-        driver.writeCell(a.sheetId, rc.row, rc.col, a.newValue);
+        const typed = typeAll || rich;
+        if (typed) {
+          setDriveStatus(`Đang gõ ${a.cell}…`);
+          await sleep(LOOK_MS); // cursor landed — "reading" beat before typing
+          await driver.typeCell(a.sheetId, rc.row, rc.col, a.newValue, {
+            msPerStep,
+            shouldAbort: () => driveAbortRef.current,
+          });
+        } else {
+          setDriveStatus(`Đang sửa ô ${a.cell}`);
+          driver.writeCell(a.sheetId, rc.row, rc.col, a.newValue);
+        }
         driver.flashCell(a.sheetId, rc.row, rc.col);
-        await sleep(200);
+        await sleep(typed ? gapAfter(i) : 100);
       }
     } finally {
       driver.endDrive();

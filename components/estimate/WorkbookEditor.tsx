@@ -19,6 +19,60 @@ export interface WorkbookDriver {
   focusCell: (sheetId: string, row: number, col: number) => boolean;
   writeCell: (sheetId: string, row: number, col: number, value: string | number) => void;
   flashCell: (sheetId: string, row: number, col: number) => void;
+  /**
+   * Types the value into the cell in meaningful milestones (Copilot-style).
+   * Partial formula milestones are written as raw text ({ v }) so Univer never
+   * parses a half-typed formula; only the final milestone is a real setValue.
+   * `shouldAbort` is polled between milestones — on abort the full value is
+   * written immediately (never leaves a half-typed cell) before returning.
+   */
+  typeCell: (
+    sheetId: string,
+    row: number,
+    col: number,
+    value: string | number,
+    opts?: { msPerStep?: number; shouldAbort?: () => boolean }
+  ) => Promise<void>;
+}
+
+const driveSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Milestones for a formula: break after "(", ")" and operators — e.g.
+ *  "=SUM(C2:C28)/1000" → ["=", "=SUM(", "=SUM(C2:C28)", "=SUM(C2:C28)/1000"]. */
+function formulaMilestones(formula: string): string[] {
+  const marks: string[] = ["="];
+  let buf = "";
+  for (const ch of formula) {
+    buf += ch;
+    if ("()+-*/,".includes(ch) && buf.length > 1) marks.push(buf);
+  }
+  if (marks[marks.length - 1] !== formula) marks.push(formula);
+  // Dedupe + cap so pathological formulas can't blow the time budget
+  const uniq = [...new Set(marks)];
+  if (uniq.length <= 6) return uniq;
+  return [...uniq.slice(0, 5), formula];
+}
+
+/** Milestones for plain text/number: short values land in one shot,
+ *  medium text in 2 steps, long text (>40 chars) in 3 steps. */
+function textMilestones(value: string): string[] {
+  if (value.length < 6) return [value];
+  if (value.length > 40) {
+    return [
+      value.slice(0, Math.ceil(value.length / 3)),
+      value.slice(0, Math.ceil((2 * value.length) / 3)),
+      value,
+    ];
+  }
+  return [value.slice(0, Math.ceil(value.length / 2)), value];
+}
+
+/** Number of typing milestones typeCell will use — lets callers budget time. */
+export function estimateTypeSteps(value: string | number): number {
+  const str = String(value);
+  return typeof value === "string" && str.startsWith("=")
+    ? formulaMilestones(str).length
+    : textMilestones(str).length;
 }
 
 interface Props {
@@ -389,6 +443,33 @@ export default function WorkbookEditor({
         try {
           getSheet(sheetId)?.getRange?.(row, col, 1, 1)?.setValue?.(value);
         } catch (_) {}
+      },
+      typeCell: async (sheetId, row, col, value, opts) => {
+        const msPerStep = opts?.msPerStep ?? 90;
+        let range: any = null;
+        try {
+          range = getSheet(sheetId)?.getRange?.(row, col, 1, 1);
+        } catch (_) {}
+        if (!range) return;
+        const setFinal = () => {
+          try { range.setValue?.(value); } catch (_) {}
+        };
+        const str = String(value);
+        const isFormula = typeof value === "string" && str.startsWith("=");
+        const steps = isFormula ? formulaMilestones(str) : textMilestones(str);
+        for (let i = 0; i < steps.length - 1; i++) {
+          if (opts?.shouldAbort?.()) {
+            setFinal();
+            return;
+          }
+          try {
+            // Partial formula as raw text via ICellData — never formula-parsed
+            if (isFormula) range.setValue?.({ v: steps[i] });
+            else range.setValue?.(steps[i]);
+          } catch (_) {}
+          await driveSleep(msPerStep);
+        }
+        setFinal();
       },
       flashCell: (sheetId, row, col) => {
         try {
