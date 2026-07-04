@@ -25,6 +25,7 @@ import { SparkleIcon, ChevronRightIcon } from "@/components/ui/icons";
 import { Bot, History as HistoryIcon, Lock, MapPin, Pause, Ruler, Undo2 } from "lucide-react";
 import { takePendingTask, type PendingTask } from "@/lib/pendingTask";
 import { TaskCard } from "./TaskCard";
+import { addJob, updateJob, appendJobLog } from "@/components/ui/JobCenter";
 
 // Labels for non-cell action types shown in the auto-apply summary
 const ACTION_TYPE_VI: Record<string, string> = {
@@ -60,8 +61,22 @@ function buildAppliedDiff(actions: Action[]): string {
   return lines.length > 0 ? `\n${lines.join("\n")}` : "";
 }
 
+/** Options for a silent agent task — full prompt goes to the backend,
+    the chat thread only shows the compact displayText. */
+export interface RunTaskOptions {
+  /** Full structured prompt sent to the backend */
+  prompt: string;
+  /** Compact user-bubble text shown (and persisted) in the thread */
+  displayText: string;
+  /** Short label for the JobCenter entry (falls back to displayText) */
+  jobLabel?: string;
+}
+
 export interface AgentHandle {
   send: (text: string, files: File[]) => void;
+  /** Run the copilot pipeline as a background task: chat shows displayText,
+      progress is mirrored into the JobCenter, sidebar is NOT force-opened. */
+  runTask: (opts: RunTaskOptions) => void;
   injectMessage: (msg: Pick<ConversationMessage, "kind" | "text">) => void;
   /** Undo the patch created by an applied AI message (per-message undo logic) */
   undoPatch: (patchId: string) => void;
@@ -189,6 +204,10 @@ export function AgentConsole({
   const isAtBottomRef = useRef(true);
   const prevThreadLenRef = useRef(0);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Silent agent task → JobCenter mirroring (set only while a runTask is live)
+  const taskJobIdRef = useRef<string | null>(null);
+  const taskStartRef = useRef(0);
+  const taskStepCountRef = useRef(0);
 
   const typedTail =
     liveText.length > 1400 ? "…" + liveText.slice(-1400) : liveText;
@@ -490,7 +509,51 @@ export function AgentConsole({
     localStorage.setItem(EDIT_PERM_KEY(estimate.id), next ? "1" : "0");
   }
 
-  async function send(text?: string, attached?: File[]) {
+  /** Finalize the JobCenter entry of a live silent task (if any). */
+  function finishTaskJob(
+    status: "done" | "failed",
+    message?: string
+  ) {
+    const jobId = taskJobIdRef.current;
+    if (!jobId) return;
+    taskJobIdRef.current = null;
+    updateJob(jobId, {
+      status,
+      progress: status === "done" ? 100 : undefined,
+      message,
+      durationMs: Date.now() - taskStartRef.current,
+    });
+    if (message) {
+      appendJobLog(jobId, status === "done" ? "info" : "error", message);
+    }
+  }
+
+  /** Silent agent task: same send() pipeline, but the chat bubble shows a
+      compact displayText and progress is mirrored into the JobCenter.
+      Does NOT force the sidebar open — the collapsed rail pulses instead. */
+  function runTask({ prompt, displayText, jobLabel }: RunTaskOptions) {
+    if (streamingRef.current) {
+      toast.error("Agent đang bận", "Đợi tác vụ hiện tại hoàn tất rồi thử lại.");
+      return;
+    }
+    const job = addJob({
+      id: `agent-task-${Date.now()}`,
+      type: "agent_task",
+      status: "processing",
+      progress: 5,
+      message: jobLabel ?? displayText,
+    });
+    taskJobIdRef.current = job.id;
+    taskStartRef.current = Date.now();
+    taskStepCountRef.current = 0;
+    void send(prompt, [], { displayText });
+  }
+
+  async function send(
+    text?: string,
+    attached?: File[],
+    opts?: { displayText?: string }
+  ) {
     const message = (text ?? "").trim();
     const sentFiles = attached ?? [];
     if ((!message && sentFiles.length === 0) || streaming) return;
@@ -507,7 +570,11 @@ export function AgentConsole({
     const userMsg: ConversationMessage = {
       id: nextId(),
       kind: "user",
-      text: message || `📎 ${sentFiles.map((f) => f.name).join(", ")}`,
+      // Silent tasks persist the compact displayText, never the long prompt.
+      // Trade-off: resending from history won't have the original prompt.
+      text:
+        opts?.displayText ??
+        (message || `📎 ${sentFiles.map((f) => f.name).join(", ")}`),
       timestamp: new Date().toISOString(),
     };
 
@@ -553,12 +620,28 @@ export function AgentConsole({
             thinkingRef.current += t;
             setLiveThinking((prev) => prev + t);
           },
-          onStep: (s) =>
+          onStep: (s) => {
             setLiveSteps((prev) => [
               ...prev,
               { text: s.text, at: clockNow() },
-            ]),
+            ]);
+            const jobId = taskJobIdRef.current;
+            if (jobId) {
+              taskStepCountRef.current += 1;
+              updateJob(jobId, {
+                message: s.text,
+                progress: Math.min(90, 10 + taskStepCountRef.current * 8),
+              });
+              appendJobLog(jobId, "info", s.text);
+            }
+          },
           onProposal: (p: CopilotProposal) => {
+            finishTaskJob(
+              "done",
+              p.actions.length > 0
+                ? `Hoàn tất — ${p.actions.length} đề xuất thay đổi`
+                : "Hoàn tất"
+            );
             const msgId = nextId();
             const ts = new Date().toISOString();
             const findings = (p as any).findings as
@@ -699,6 +782,7 @@ export function AgentConsole({
             }
           },
           onError: (m: string) => {
+            finishTaskJob("failed", m);
             const errMsg: ConversationMessage = {
               id: nextId(),
               kind: "error",
@@ -735,6 +819,8 @@ export function AgentConsole({
       streamingRef.current = false;
       setStreaming(false);
       abortRef.current = null;
+      // Stream ended without a proposal or error event (e.g. aborted)
+      finishTaskJob("failed", "Tác vụ kết thúc mà không có kết quả");
       // Always persist — animation may not complete before user navigates away
       saveConversation(finalThread);
       if (!pendingFinalizeRef.current && !typewriterRef.current && !queueRef.current) {
@@ -882,6 +968,7 @@ export function AgentConsole({
     if (!controlRef || typeof controlRef !== "object") return;
     (controlRef as React.MutableRefObject<AgentHandle>).current = {
       send: (text: string, files: File[]) => send(text, files),
+      runTask,
       injectMessage: (msg) => {
         const full: ConversationMessage = {
           id: nextId(),
@@ -919,8 +1006,12 @@ export function AgentConsole({
         }}
         className="group flex w-12 shrink-0 flex-col items-center gap-3 border-l border-zinc-800 bg-zinc-950 py-4"
       >
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-700 text-white shadow-[0_8px_24px_-8px_rgba(59,130,246,0.7)] transition-transform group-hover:scale-105">
+        <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-700 text-white shadow-[0_8px_24px_-8px_rgba(59,130,246,0.7)] transition-transform group-hover:scale-105">
           <SparkleIcon className="h-5 w-5" />
+          {/* Agent running indicator — click the rail to watch progress */}
+          {streaming && (
+            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 animate-pulse rounded-full border-2 border-zinc-950 bg-emerald-400" />
+          )}
         </span>
         <span
           className="text-[11px] font-medium tracking-wide text-zinc-500 group-hover:text-zinc-300"

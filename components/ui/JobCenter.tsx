@@ -34,6 +34,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   generate_takeoff: "Generate Takeoff",
   generate_boq:     "Generate BOQ",
   compare_revision: "So sánh Revision",
+  agent_task:       "Agent Task",
 };
 
 interface JobCenterProps {

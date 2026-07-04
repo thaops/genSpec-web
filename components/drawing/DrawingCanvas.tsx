@@ -8,7 +8,7 @@ import type {
 } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import type { DrawingTool } from "./DrawingToolbar";
-import { Layers, X } from "lucide-react";
+import { Layers, Maximize, Minus, Plus, X } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Unified vector viewer for DXF/DWG scenes (contract: GET .../scene).
@@ -100,6 +100,75 @@ function buildSceneIndex(scene: DrawingScene): SceneIndex {
     bounds[o] = minX; bounds[o + 1] = minY; bounds[o + 2] = maxX; bounds[o + 3] = maxY;
   }
   return { bounds, colors };
+}
+
+// ─── Robust content bounds ───────────────────────────────────────────────────
+// Real-world DXFs often contain a few stray entities (orphan text/points) far
+// from the actual drawing, which inflate scene.bbox and break fit-to-view.
+// Outlier rejection: median center ± k×MAD per axis. Rejection only applies
+// when ≥ OUTLIER_MIN_KEEP of entities survive — multi-cluster drawings where
+// clusters are all "real" fall back to the raw bbox untouched.
+
+interface Bounds2D { minX: number; minY: number; maxX: number; maxY: number }
+
+const OUTLIER_K = 8;            // k×MAD cutoff
+const OUTLIER_MIN_KEEP = 0.9;   // keep ratio required to trust the trim
+const OUTLIER_MAD_FLOOR = 0.01; // MAD floor = 1% of raw bbox size (avoid /0)
+
+function medianOf(arr: Float64Array): number {
+  const s = Float64Array.from(arr).sort();
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function computeContentBounds(index: SceneIndex, scene: DrawingScene): Bounds2D {
+  const raw = scene.bbox;
+  const n = scene.entities.length;
+  if (n < 8) return raw; // too few entities for robust stats
+
+  const b = index.bounds;
+  const cxs = new Float64Array(n);
+  const cys = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    cxs[i] = (b[o] + b[o + 2]) / 2;
+    cys[i] = (b[o + 1] + b[o + 3]) / 2;
+  }
+  const medX = medianOf(cxs);
+  const medY = medianOf(cys);
+
+  const devX = new Float64Array(n);
+  const devY = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    devX[i] = Math.abs(cxs[i] - medX);
+    devY[i] = Math.abs(cys[i] - medY);
+  }
+  const floor = OUTLIER_MAD_FLOOR *
+    Math.max(raw.maxX - raw.minX, raw.maxY - raw.minY, 1e-9);
+  const madX = Math.max(medianOf(devX), floor);
+  const madY = Math.max(medianOf(devY), floor);
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let kept = 0;
+  for (let i = 0; i < n; i++) {
+    if (devX[i] > OUTLIER_K * madX || devY[i] > OUTLIER_K * madY) continue;
+    kept++;
+    const o = i * 4;
+    if (b[o] < minX) minX = b[o];
+    if (b[o + 1] < minY) minY = b[o + 1];
+    if (b[o + 2] > maxX) maxX = b[o + 2];
+    if (b[o + 3] > maxY) maxY = b[o + 3];
+  }
+  if (kept === 0 || kept / n < OUTLIER_MIN_KEEP || !isFinite(minX)) return raw;
+  return { minX, minY, maxX, maxY };
+}
+
+// Nice scale-bar step: 1/2/5 × 10^n closest to (but not above) target
+function niceStep(target: number): number {
+  if (!(target > 0) || !isFinite(target)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(target)));
+  const m = target / p;
+  return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * p;
 }
 
 function shoelaceArea(pts: { x: number; y: number }[]): number {
@@ -199,6 +268,13 @@ export function DrawingCanvas({
   const [autoBarDismissed, setAutoBarDismissed] = useState(false);
 
   const index = useMemo(() => buildSceneIndex(scene), [scene]);
+  // Robust bounds (outliers rejected) — used for fit/F/dblclick/minimap
+  const contentBounds = useMemo(
+    () => computeContentBounds(index, scene),
+    [index, scene]
+  );
+  // HUD synced from the render loop (only setState when a value changed)
+  const [hud, setHud] = useState({ pct: 100, lost: false, barPx: 0, barLabel: "" });
 
   const calibrating = (calibration == null && !calSkipped) || manualPick;
 
@@ -215,15 +291,19 @@ export function DrawingCanvas({
     toolPts: [] as { x: number; y: number }[],
     toolHover: null as { x: number; y: number } | null,
     toolDone: false,
+    // camera scale at last fit → 100% reference for the zoom-% button
+    fitScale: 1,
+    // last HUD values pushed to React state (change-detection throttle)
+    hud: { pct: -1, lost: false, barPx: -1, barLabel: "" },
   });
 
   // Latest props/state for the render closure
   const view = useRef({
-    scene, index, objects, selectedObjectId, activeTool, calibration,
+    scene, index, contentBounds, objects, selectedObjectId, activeTool, calibration,
     hiddenLayers, theme, calPts, hoverObject, calibrating, reviewStates,
   });
   view.current = {
-    scene, index, objects, selectedObjectId, activeTool, calibration,
+    scene, index, contentBounds, objects, selectedObjectId, activeTool, calibration,
     hiddenLayers, theme, calPts, hoverObject, calibrating, reviewStates,
   };
 
@@ -246,19 +326,21 @@ export function DrawingCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fitView = useCallback(() => {
+  // Fit robust content bounds by default; pass scene.bbox for "Toàn bộ"
+  const fitView = useCallback((bbox?: Bounds2D) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const W = canvas.clientWidth, H = canvas.clientHeight;
-    const { bbox } = view.current.scene;
-    const ww = bbox.maxX - bbox.minX || 1;
-    const wh = bbox.maxY - bbox.minY || 1;
+    const box = bbox ?? view.current.contentBounds;
+    const ww = box.maxX - box.minX || 1;
+    const wh = box.maxY - box.minY || 1;
     // 5% padding
     const scale = Math.min(W / ww, H / wh) / 1.05;
     const cam = st.current.cam;
     cam.scale = scale;
-    cam.offsetX = (W - ww * scale) / 2 - bbox.minX * scale;
-    cam.offsetY = (H - wh * scale) / 2 + bbox.maxY * scale;
+    cam.offsetX = (W - ww * scale) / 2 - box.minX * scale;
+    cam.offsetY = (H - wh * scale) / 2 + box.maxY * scale;
+    st.current.fitScale = scale;
     scheduleRender();
   }, [scheduleRender]);
 
@@ -428,6 +510,37 @@ export function DrawingCanvas({
     drawToolOverlay(ctx, dark);
 
     drawMinimap(W, H, dark);
+    updateHud(W, H);
+  }
+
+  // Cheap per-frame HUD sync: zoom %, scale bar, lost-viewport check.
+  // setState only fires when a rendered value actually changed.
+  function updateHud(W: number, H: number) {
+    const s = st.current;
+    const v = view.current;
+    const { scale, offsetX, offsetY } = s.cam;
+
+    const pct = Math.round((scale / (s.fitScale || 1)) * 100);
+
+    // Viewport ∩ content bounds — empty → drawing is off-screen
+    const cb = v.contentBounds;
+    const wx0 = -offsetX / scale, wx1 = (W - offsetX) / scale;
+    const wy1 = offsetY / scale, wy0 = (offsetY - H) / scale;
+    const lost = wx1 < cb.minX || wx0 > cb.maxX || wy1 < cb.minY || wy0 > cb.maxY;
+
+    // Scale bar: nice real-world length whose on-screen width ≈ 100px
+    const factor = v.calibration?.unitsPerDrawingUnit ?? 1;
+    const unit = v.calibration?.unitLabel ?? "đv";
+    const nice = niceStep((100 / scale) * factor);
+    const barPx = Math.round((nice / factor) * scale);
+    const barLabel = `${formatNum(nice)} ${unit}`;
+
+    const last = s.hud;
+    if (pct !== last.pct || lost !== last.lost ||
+        barPx !== last.barPx || barLabel !== last.barLabel) {
+      s.hud = { pct, lost, barPx, barLabel };
+      setHud(s.hud);
+    }
   }
 
   function drawToolOverlay(ctx: CanvasRenderingContext2D, dark: boolean) {
@@ -538,7 +651,7 @@ export function DrawingCanvas({
     if (!mm) return;
     const ctx = mm.getContext("2d");
     if (!ctx) return;
-    const { bbox } = view.current.scene;
+    const bbox = view.current.contentBounds;
     const ww = bbox.maxX - bbox.minX || 1;
     const wh = bbox.maxY - bbox.minY || 1;
     const s = Math.min(MINIMAP_W / ww, MINIMAP_H / wh) * 0.9;
@@ -567,7 +680,7 @@ export function DrawingCanvas({
 
   function onMinimapClick(e: React.MouseEvent<HTMLCanvasElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
-    const { bbox } = view.current.scene;
+    const bbox = view.current.contentBounds;
     const ww = bbox.maxX - bbox.minX || 1;
     const wh = bbox.maxY - bbox.minY || 1;
     const s = Math.min(MINIMAP_W / ww, MINIMAP_H / wh) * 0.9;
@@ -815,6 +928,18 @@ export function DrawingCanvas({
     onCalibrated?.({ unitsPerDrawingUnit: realMeters / d, unitLabel: "m" });
   }
 
+  // ── Zoom control helpers (buttons zoom about the canvas center) ────────────
+  function zoomAtCenter(factor: number) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, factor);
+  }
+
+  function resetZoom100() {
+    const s = st.current;
+    if (s.fitScale > 0) zoomAtCenter(s.fitScale / s.cam.scale);
+  }
+
   const drawingDist = calPts.length === 2
     ? Math.hypot(calPts[1].x - calPts[0].x, calPts[1].y - calPts[0].y)
     : null;
@@ -878,9 +1003,72 @@ export function DrawingCanvas({
         </div>
       )}
 
+      {/* Scale bar */}
+      {hud.barPx > 0 && (
+        <div className="absolute bottom-7 left-2 z-10 select-none pointer-events-none">
+          <div className="text-[9px] text-zinc-400 mb-0.5">{hud.barLabel}</div>
+          <div
+            className="h-[3px] border-x border-b border-zinc-400/80 bg-zinc-400/30"
+            style={{ width: hud.barPx }}
+          />
+        </div>
+      )}
+
       {/* Hint bar */}
       <div className="absolute bottom-2 left-2 z-10 text-[9px] text-zinc-500 select-none pointer-events-none">
         Lăn chuột = Zoom · Kéo = Pan · DblClick / F = Fit
+      </div>
+
+      {/* "Mất bản vẽ" — viewport no longer intersects the drawing */}
+      {hud.lost && (
+        <button
+          onClick={() => fitView()}
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 px-3 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-700 text-xs text-zinc-200 shadow-xl hover:bg-zinc-800"
+        >
+          ↺ Về bản vẽ
+        </button>
+      )}
+
+      {/* Zoom controls (Togal-style), above minimap */}
+      <div
+        className="absolute right-3 z-10 flex flex-col items-center gap-1"
+        style={{ bottom: MINIMAP_H + 20 }}
+      >
+        <button
+          title="Phóng to"
+          onClick={() => zoomAtCenter(1.25)}
+          className="h-7 w-7 flex items-center justify-center rounded-full bg-zinc-900/90 border border-zinc-700 text-zinc-300 hover:bg-zinc-800 shadow"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          title="Thu nhỏ"
+          onClick={() => zoomAtCenter(1 / 1.25)}
+          className="h-7 w-7 flex items-center justify-center rounded-full bg-zinc-900/90 border border-zinc-700 text-zinc-300 hover:bg-zinc-800 shadow"
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          title="Vừa khung (bỏ entities lạc)"
+          onClick={() => fitView()}
+          className="h-7 w-7 flex items-center justify-center rounded-full bg-zinc-900/90 border border-zinc-700 text-zinc-300 hover:bg-zinc-800 shadow"
+        >
+          <Maximize className="h-3.5 w-3.5" />
+        </button>
+        <button
+          title="Về 100%"
+          onClick={resetZoom100}
+          className="h-7 min-w-7 px-1 flex items-center justify-center rounded-full bg-zinc-900/90 border border-zinc-700 text-[9px] text-zinc-300 font-mono hover:bg-zinc-800 shadow"
+        >
+          {hud.pct}%
+        </button>
+        <button
+          title="Fit toàn bộ (kể cả entities xa)"
+          onClick={() => fitView(scene.bbox)}
+          className="h-6 px-2 flex items-center justify-center rounded-full bg-zinc-900/90 border border-zinc-700 text-[9px] text-zinc-400 hover:bg-zinc-800 shadow"
+        >
+          Toàn bộ
+        </button>
       </div>
 
       {/* Layer panel */}

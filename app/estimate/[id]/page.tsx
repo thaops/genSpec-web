@@ -500,8 +500,18 @@ export default function EstimateEditorPage() {
     // Context engine already knows current state; use Action Dispatcher
     const prompt = buildGenerateTakeoffAction(obj, drawingId, contextEngine.getContext());
     setViewMode("workbook");
-    setCollapsed(false);
-    setTimeout(() => copilotRef.current?.send(prompt, []), 300);
+    // Silent task — sidebar stays as-is; collapsed rail pulses while running
+    const typeLabel = OBJECT_TYPE_VI[obj.type] ?? obj.type;
+    const objLabel = obj.layer ? ` (${obj.layer})` : "";
+    setTimeout(
+      () =>
+        copilotRef.current?.runTask({
+          prompt,
+          displayText: `📐 Bóc khối lượng: ${typeLabel}${objLabel}`,
+          jobLabel: `Bóc khối lượng ${typeLabel}`,
+        }),
+      300
+    );
   }
 
   // "⚡ Bóc toàn bộ": ensure the "Khối lượng" sheet exists, show workbook +
@@ -520,11 +530,20 @@ export default function EstimateEditorPage() {
       await apply([{ type: "set_sheets", sheets: [...(estimate.sheets ?? []), newSheet] }]);
       setActiveSheetId(newSheet.id);
     }
-    // Split: workbook on the left, drawing on the right
+    // Split: workbook on the left, drawing on the right.
+    // Silent task — do NOT force the sidebar open; the collapsed rail pulses.
     setViewMode("drawing");
     setSplitMode(true);
-    setCollapsed(false);
-    setTimeout(() => copilotRef.current?.send(prompt, []), 300);
+    const drawingName = drawings.find((d) => d.id === activeDrawingId)?.name;
+    setTimeout(
+      () =>
+        copilotRef.current?.runTask({
+          prompt,
+          displayText: `⚡ Bóc khối lượng toàn bộ bản vẽ${drawingName ? ` ${drawingName}` : ""}`,
+          jobLabel: "Bóc khối lượng",
+        }),
+      300
+    );
   }
 
   function handleObjectsLoaded(objects: DrawingObject[]) {
@@ -695,8 +714,16 @@ export default function EstimateEditorPage() {
       onJumpToBoq={handleJumpToBoq}
       externalFocus={drawingFocus}
       onAskAI={(summaryText) => {
-        setCollapsed(false);
-        setTimeout(() => copilotRef.current?.send(summaryText, []), 300);
+        // Silent task — sidebar stays as-is
+        setTimeout(
+          () =>
+            copilotRef.current?.runTask({
+              prompt: summaryText,
+              displayText: "🔍 Phân tích thay đổi giữa 2 bản vẽ",
+              jobLabel: "Phân tích revision",
+            }),
+          300
+        );
       }}
       onViewportChange={(info) => {
         setDrawingViewport(info);
