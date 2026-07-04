@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Action, AppliedActionsRecord, BoqTraceToken, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
+import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
 import { api, ApiError, exportTHDT, triggerDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -22,6 +22,7 @@ import {
   type AiCellEdit,
 } from "@/components/estimate/CellExplainPopover";
 import { InsightsDashboard } from "@/components/estimate/InsightsDashboard";
+import { AgentTaskPill } from "@/components/estimate/AgentTaskPill";
 import { takePendingPrompt } from "@/lib/pendingPrompt";
 import { contextEngine } from "@/lib/context/ContextEngine";
 import { buildGenerateTakeoffAction } from "@/lib/actions/AgentActions";
@@ -100,6 +101,8 @@ export default function EstimateEditorPage() {
   // BOQ → drawing focus request (token parsed from the selected workbook row)
   const [drawingFocus, setDrawingFocus] = useState<DrawingFocusRequest | null>(null);
   const [agentWidth, setAgentWidth] = useState(380);
+  // Floating pill mirroring the current silent agent task (⚡ takeoff, …)
+  const [agentTask, setAgentTask] = useState<AgentTaskState | null>(null);
   const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
   // Cells the AI just edited — key `${sheetId}:${CELL}` (uppercase A1)
   const [aiEdits, setAiEdits] = useState<Map<string, AiCellEdit>>(new Map());
@@ -711,6 +714,7 @@ export default function EstimateEditorPage() {
       onDrawingsChange={setDrawings}
       onObjectsLoaded={handleObjectsLoaded}
       onFullTakeoff={handleFullTakeoff}
+      takeoffBusy={agentTask?.status === "running"}
       onJumpToBoq={handleJumpToBoq}
       externalFocus={drawingFocus}
       onAskAI={(summaryText) => {
@@ -774,7 +778,14 @@ export default function EstimateEditorPage() {
         />
 
         {/* Main Area */}
-        <div className="min-w-0 flex-1 overflow-hidden bg-zinc-950 flex flex-col">
+        <div className="relative min-w-0 flex-1 overflow-hidden bg-zinc-950 flex flex-col">
+          {agentTask && (
+            <AgentTaskPill
+              task={agentTask}
+              onView={() => setCollapsed(false)}
+              onDismiss={() => setAgentTask(null)}
+            />
+          )}
           {viewMode === "drawing" && splitMode ? (
             <SplitView
               left={workbookContent}
@@ -817,6 +828,7 @@ export default function EstimateEditorPage() {
           onAgentNavigate={handleAgentNavigate}
           onEstimateSynced={syncEstimate}
           onActionsApplied={handleActionsApplied}
+          onTaskStateChange={setAgentTask}
         />
       </div>
     </div>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 import type {
   Action,
+  AgentTaskState,
   AppliedActionsRecord,
   ConversationMessage,
   CopilotProposal,
@@ -161,6 +162,9 @@ interface Props {
   onEstimateSynced?: (e: Estimate) => void;
   /** Called after each successful apply with the cell edits + provenance */
   onActionsApplied?: (record: AppliedActionsRecord) => void;
+  /** Mirrors a silent runTask()'s lifecycle → page renders the floating pill.
+      Regular send() (user chat) never triggers this. */
+  onTaskStateChange?: (s: AgentTaskState | null) => void;
 }
 
 export function AgentConsole({
@@ -181,6 +185,7 @@ export function AgentConsole({
   onAgentNavigate,
   onEstimateSynced,
   onActionsApplied,
+  onTaskStateChange,
 }: Props) {
   const toast = useToast();
   const [showHistory, setShowHistory] = useState(false);
@@ -220,6 +225,8 @@ export function AgentConsole({
   const taskJobIdRef = useRef<string | null>(null);
   const taskStartRef = useRef(0);
   const taskStepCountRef = useRef(0);
+  // Label of the live silent task — drives the floating pill on the page
+  const taskLabelRef = useRef<string>("");
 
   const typedTail =
     liveText.length > 1400 ? "…" + liveText.slice(-1400) : liveText;
@@ -327,6 +334,18 @@ export function AgentConsole({
       behavior: "smooth",
     });
   }, [thread, liveSteps, streaming, liveText, liveThinking, driveStatus]);
+
+  // Sidebar re-opened (e.g. via the floating task pill) → land the user on
+  // the chat surface at the newest message, not the history view.
+  useEffect(() => {
+    if (collapsed) return;
+    setShowHistory(false);
+    const t = window.setTimeout(() => {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      isAtBottomRef.current = true;
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, [collapsed]);
 
   const handleChatScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -558,6 +577,12 @@ export function AgentConsole({
     taskJobIdRef.current = job.id;
     taskStartRef.current = Date.now();
     taskStepCountRef.current = 0;
+    taskLabelRef.current = jobLabel ?? displayText;
+    onTaskStateChange?.({
+      label: taskLabelRef.current,
+      step: "Đang khởi động…",
+      status: "running",
+    });
     void send(prompt, [], { displayText });
   }
 
@@ -675,9 +700,15 @@ export function AgentConsole({
                 progress: Math.min(90, 10 + taskStepCountRef.current * 8),
               });
               appendJobLog(jobId, "info", s.text);
+              onTaskStateChange?.({
+                label: taskLabelRef.current,
+                step: s.text,
+                status: "running",
+              });
             }
           },
           onProposal: (p: CopilotProposal) => {
+            const wasTask = taskJobIdRef.current != null;
             finishTaskJob(
               "done",
               p.actions.length > 0
@@ -685,6 +716,17 @@ export function AgentConsole({
                 : "Hoàn tất"
             );
             const msgId = nextId();
+            if (wasTask) {
+              onTaskStateChange?.({
+                label: taskLabelRef.current,
+                step:
+                  p.actions.length > 0
+                    ? `${p.actions.length} đề xuất thay đổi`
+                    : "Hoàn tất",
+                status: "done",
+                proposalMsgId: msgId,
+              });
+            }
             const ts = new Date().toISOString();
             const findings = (p as any).findings as
               | ReviewFinding[]
@@ -824,7 +866,15 @@ export function AgentConsole({
             }
           },
           onError: (m: string) => {
+            const wasTask = taskJobIdRef.current != null;
             finishTaskJob("failed", m);
+            if (wasTask) {
+              onTaskStateChange?.({
+                label: taskLabelRef.current,
+                step: m,
+                status: "error",
+              });
+            }
             const errMsg: ConversationMessage = {
               id: nextId(),
               kind: "error",
@@ -862,7 +912,15 @@ export function AgentConsole({
       setStreaming(false);
       abortRef.current = null;
       // Stream ended without a proposal or error event (e.g. aborted)
+      const danglingTask = taskJobIdRef.current != null;
       finishTaskJob("failed", "Tác vụ kết thúc mà không có kết quả");
+      if (danglingTask) {
+        onTaskStateChange?.({
+          label: taskLabelRef.current,
+          step: "Tác vụ kết thúc mà không có kết quả",
+          status: "error",
+        });
+      }
       // Always persist — animation may not complete before user navigates away
       saveConversation(finalThread);
       if (!pendingFinalizeRef.current && !typewriterRef.current && !queueRef.current) {

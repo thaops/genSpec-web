@@ -86,6 +86,8 @@ interface DrawingWorkspaceProps {
   onObjectsLoaded?: (objects: DrawingObject[]) => void;
   // "⚡ Bóc toàn bộ": workspace builds the structured prompt, page sends it
   onFullTakeoff?: (prompt: string) => void;
+  // Agent task in-flight (page-level) → disable takeoff triggers
+  takeoffBusy?: boolean;
   // Traceability: drawing → BOQ jump requested from the Object Inspector
   onJumpToBoq?: (obj: DrawingObject) => void;
   // Traceability: BOQ → drawing focus request (token parsed from workbook row)
@@ -105,6 +107,7 @@ export function DrawingWorkspace({
   onViewportChange,
   onObjectsLoaded,
   onFullTakeoff,
+  takeoffBusy = false,
   onJumpToBoq,
   externalFocus,
   onAskAI,
@@ -130,6 +133,8 @@ export function DrawingWorkspace({
   // Full takeoff flow
   const [fullTakeoffRunning, setFullTakeoffRunning] = useState(false);
   const [calibrationPromptKey, setCalibrationPromptKey] = useState(0);
+  // Calibration gate dialog — holds the detected objects awaiting a decision
+  const [calGateObjs, setCalGateObjs] = useState<DrawingObject[] | null>(null);
   // Track drawings already announced to avoid duplicate notifications
   const announcedDrawings = useRef<Set<string>>(new Set());
 
@@ -321,9 +326,20 @@ export function DrawingWorkspace({
     }
   }
 
+  // c + d. Measure the approved objects → hand the structured prompt to the page
+  function proceedFullTakeoff(objs: DrawingObject[]) {
+    if (!activeDrawingId) return;
+    // Only objects not rejected in the Review Queue count
+    const included = objs.filter((o) => reviewStates[o.id] !== "rejected");
+    if (included.length === 0) return;
+    const summary = summarizeObjects(included, calibration);
+    // Structured prompt → page (ensures "Khối lượng" sheet + sends)
+    onFullTakeoff?.(buildFullTakeoffAction(included, activeDrawingId, calibration, summary));
+  }
+
   // "⚡ Bóc toàn bộ": detect if needed → calibration gate → measure → prompt
   async function handleFullTakeoff() {
-    if (!activeDrawingId || fullTakeoffRunning || detecting) return;
+    if (!activeDrawingId || fullTakeoffRunning || detecting || takeoffBusy) return;
     setFullTakeoffRunning(true);
     try {
       // a. Ensure objects — run detection when nothing has been detected yet
@@ -331,25 +347,14 @@ export function DrawingWorkspace({
       if (objs.length === 0) objs = await handleDetect();
       if (objs.length === 0) return;
 
-      // b. Calibration gate — warn once, allow proceeding in drawing units
-      if (!calibration) {
-        const proceed = window.confirm(
-          "Bản vẽ chưa hiệu chỉnh tỉ lệ — số liệu bóc sẽ theo ĐƠN VỊ BẢN VẼ, không phải mét.\n\n" +
-          "OK: tiếp tục (bỏ qua)\nCancel: hiệu chỉnh trước (click 2 điểm trên đoạn đã biết kích thước)"
-        );
-        if (!proceed) {
-          setCalibrationPromptKey((k) => k + 1); // re-open CalibrationBar in canvas
-          return;
-        }
+      // b. Calibration gate — a manual calibration skips the dialog; otherwise
+      // ask: calibrate now / continue with auto scale (or raw drawing units).
+      if (!calibration || calibration.auto) {
+        setCalGateObjs(objs);
+        return;
       }
 
-      // c. Only objects not rejected in the Review Queue count
-      const included = objs.filter((o) => reviewStates[o.id] !== "rejected");
-      if (included.length === 0) return;
-      const summary = summarizeObjects(included, calibration);
-
-      // d + e. Structured prompt → page (ensures "Khối lượng" sheet + sends)
-      onFullTakeoff?.(buildFullTakeoffAction(included, activeDrawingId, calibration, summary));
+      proceedFullTakeoff(objs);
     } finally {
       setFullTakeoffRunning(false);
     }
@@ -446,7 +451,61 @@ export function DrawingWorkspace({
     : ["pointer", "search", "ai"];
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="relative flex h-full overflow-hidden">
+      {/* Calibration gate — asked once before ⚡ full takeoff when only an
+          auto scale (or none) is available */}
+      {calGateObjs && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+          <div className="animate-slide-up w-full max-w-sm rounded-2xl border border-zinc-700/80 bg-zinc-900 p-5 shadow-2xl">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400" />
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-zinc-100">
+                  Bản vẽ chưa hiệu chỉnh tỉ lệ chính xác
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                  {calibration?.auto
+                    ? `Đang dùng tỉ lệ tự nhận từ đơn vị bản vẽ (${scene?.units ?? "?"} → ${calibration.unitLabel}). Hiệu chỉnh tay cho số liệu chính xác hơn.`
+                    : "Số liệu bóc sẽ theo ĐƠN VỊ BẢN VẼ, không phải mét. Hiệu chỉnh bằng cách click 2 điểm trên đoạn đã biết kích thước."}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setCalGateObjs(null);
+                  setCalibrationPromptKey((k) => k + 1); // re-open CalibrationBar
+                }}
+                className="w-full rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-500"
+              >
+                Hiệu chỉnh ngay
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const objs = calGateObjs;
+                  setCalGateObjs(null);
+                  proceedFullTakeoff(objs);
+                }}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-700"
+              >
+                {calibration?.auto
+                  ? `Dùng tỉ lệ tự nhận (${scene?.units ?? calibration.unitLabel})`
+                  : "Tiếp tục với đơn vị bản vẽ"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCalGateObjs(null)}
+                className="w-full rounded-lg px-3 py-1.5 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+              >
+                Huỷ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Vertical toolbar */}
       <DrawingToolbar
         activeTool={activeTool}
@@ -474,12 +533,12 @@ export function DrawingWorkspace({
             </button>
             <button
               onClick={handleFullTakeoff}
-              disabled={!isReady || fullTakeoffRunning || detecting}
+              disabled={!isReady || fullTakeoffRunning || detecting || takeoffBusy}
               title="Bóc khối lượng toàn bộ bản vẽ vào sheet 'Khối lượng'"
               className="flex items-center gap-1 px-2 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white disabled:opacity-50 text-[11px] transition-colors"
             >
-              {fullTakeoffRunning ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-              <span>Bóc toàn bộ</span>
+              {fullTakeoffRunning || takeoffBusy ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
+              <span>{takeoffBusy ? "Đang bóc…" : "Bóc toàn bộ"}</span>
             </button>
             <button
               onClick={() => setReviewOpen((v) => !v)}
@@ -624,6 +683,7 @@ export function DrawingWorkspace({
             object={selectedObject}
             onClose={() => setInspectorOpen(false)}
             onGenerateTakeoff={handleGenerateTakeoff}
+            takeoffBusy={takeoffBusy}
             onJumpToBoq={onJumpToBoq}
           />
         </div>

@@ -100,6 +100,8 @@ interface ObjectInspectorProps {
   revisions?: DrawingRevision[];
   onClose?: () => void;
   onGenerateTakeoff?: (obj: DrawingObject) => void;
+  // Agent task in-flight → disable takeoff triggers
+  takeoffBusy?: boolean;
   // Jump to the takeoff row traced to this object (token/boqRef/type-based lookup upstream)
   onJumpToBoq?: (obj: DrawingObject) => void;
 }
@@ -109,6 +111,7 @@ export function ObjectInspector({
   revisions = [],
   onClose,
   onGenerateTakeoff,
+  takeoffBusy = false,
   onJumpToBoq,
 }: ObjectInspectorProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("summary");
@@ -282,9 +285,10 @@ export function ObjectInspector({
                 )}
                 <button
                   onClick={() => onGenerateTakeoff?.(object)}
-                  className="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs transition-colors"
+                  disabled={takeoffBusy}
+                  className="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs transition-colors disabled:opacity-50"
                 >
-                  <Sparkles className="h-3 w-3 mr-1 inline" /> Generate Takeoff
+                  <Sparkles className="h-3 w-3 mr-1 inline" /> {takeoffBusy ? "Đang bóc…" : "Generate Takeoff"}
                 </button>
               </div>
             )}
@@ -340,9 +344,10 @@ export function ObjectInspector({
             </div>
             <button
               onClick={() => onGenerateTakeoff?.(object)}
-              className="w-full px-3 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition-colors"
+              disabled={takeoffBusy}
+              className="w-full px-3 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition-colors disabled:opacity-50"
             >
-              <Sparkles className="h-3 w-3 mr-1 inline" /> Generate Takeoff
+              <Sparkles className="h-3 w-3 mr-1 inline" /> {takeoffBusy ? "Đang bóc…" : "Generate Takeoff"}
             </button>
             <button className="w-full px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors">
               <ClipboardList className="h-3 w-3 mr-1 inline" /> Review AI findings
@@ -397,9 +402,10 @@ export function ObjectInspector({
         <div className="px-3 py-2 border-t border-zinc-800 shrink-0">
           <button
             onClick={() => onGenerateTakeoff?.(object)}
-            className="w-full px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition-colors"
+            disabled={takeoffBusy}
+            className="w-full px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition-colors disabled:opacity-50"
           >
-            ✨ Generate Takeoff
+            ✨ {takeoffBusy ? "Đang bóc…" : "Generate Takeoff"}
           </button>
         </div>
       )}

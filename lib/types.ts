@@ -1171,3 +1171,13 @@ export interface DrawingDiff {
   unchangedCount: number;
   summary: { addedCount: number; removedCount: number; changedCount: number };
 }
+
+// ---------- Agent task feedback (floating pill) ----------
+// Mirrors a silent runTask()'s lifecycle so the page can render visible
+// progress outside the (possibly collapsed) agent sidebar.
+export interface AgentTaskState {
+  label: string;
+  step: string;
+  status: "running" | "done" | "error";
+  proposalMsgId?: string;
+}
