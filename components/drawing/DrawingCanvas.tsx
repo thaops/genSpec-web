@@ -44,9 +44,19 @@ interface DrawingCanvasProps {
 }
 
 const MIN_TEXT_PX = 4;
+// Deep-zoom text cap: text taller than this on screen only occludes geometry
+const MAX_TEXT_PX = 64;
 const CULL_PAD = 8;
 const MINIMAP_W = 140;
 const MINIMAP_H = 92;
+// Max points drawn in the minimap density layer (decimated per scene)
+const MINIMAP_MAX_DOTS = 2000;
+// Wheel zoom: factor = exp(-deltaY × sensitivity) → ~1.16×/100px notch
+const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+// Scale clamps: min = raw-bbox fit × ratio, max = px per drawing unit
+const MIN_ZOOM_FIT_RATIO = 0.2;
+const MAX_PX_PER_UNIT = 200;
+const DBLCLICK_ZOOM = 1.6;
 
 // Per-entity precomputed data (built once per scene for 60k-entity perf)
 interface SceneIndex {
@@ -439,7 +449,7 @@ export function DrawingCanvas({
         }
         case "text": {
           const hPx = e.h * scale;
-          if (hPx <= MIN_TEXT_PX) break; // cull tiny text
+          if (hPx <= MIN_TEXT_PX || hPx > MAX_TEXT_PX) break; // cull tiny/giant text
           ctx.font = `${hPx}px sans-serif`;
           const tx = e.x * scale + offsetX;
           const ty = -e.y * scale + offsetY;
@@ -646,6 +656,57 @@ export function DrawingCanvas({
     }
   }
 
+  // Minimap base (bg + frame + entity density dots) — rebuilt only when the
+  // scene / bounds / theme change; each frame just blits it + viewport rect.
+  const mmBase = useRef<{
+    scene: DrawingScene | null;
+    bounds: Bounds2D | null;
+    dark: boolean;
+    canvas: HTMLCanvasElement | null;
+  }>({ scene: null, bounds: null, dark: false, canvas: null });
+
+  function getMinimapBase(dark: boolean): HTMLCanvasElement {
+    const v = view.current;
+    const c = mmBase.current;
+    if (c.canvas && c.scene === v.scene && c.bounds === v.contentBounds && c.dark === dark) {
+      return c.canvas;
+    }
+    const off = c.canvas ?? document.createElement("canvas");
+    off.width = MINIMAP_W;
+    off.height = MINIMAP_H;
+    const ctx = off.getContext("2d")!;
+
+    const bbox = v.contentBounds;
+    const ww = bbox.maxX - bbox.minX || 1;
+    const wh = bbox.maxY - bbox.minY || 1;
+    const s = Math.min(MINIMAP_W / ww, MINIMAP_H / wh) * 0.9;
+    const ox = (MINIMAP_W - ww * s) / 2;
+    const oy = (MINIMAP_H - wh * s) / 2;
+
+    ctx.clearRect(0, 0, MINIMAP_W, MINIMAP_H);
+    ctx.fillStyle = dark ? "#18181b" : "#f4f4f5";
+    ctx.fillRect(0, 0, MINIMAP_W, MINIMAP_H);
+    ctx.strokeStyle = dark ? "#3f3f46" : "#a1a1aa";
+    ctx.strokeRect(ox, oy, ww * s, wh * s);
+
+    // Density dots: decimate to ≤ MINIMAP_MAX_DOTS, 1px at each entity's
+    // bbox center (from the precomputed index.bounds)
+    const n = v.scene.entities.length;
+    const step = Math.max(1, Math.ceil(n / MINIMAP_MAX_DOTS));
+    const b = v.index.bounds;
+    ctx.fillStyle = "#71717a"; // zinc-500
+    for (let i = 0; i < n; i += step) {
+      const o = i * 4;
+      const cx = (b[o] + b[o + 2]) / 2;
+      const cy = (b[o + 1] + b[o + 3]) / 2;
+      if (cx < bbox.minX || cx > bbox.maxX || cy < bbox.minY || cy > bbox.maxY) continue;
+      ctx.fillRect(ox + (cx - bbox.minX) * s, oy + (bbox.maxY - cy) * s, 1, 1);
+    }
+
+    mmBase.current = { scene: v.scene, bounds: v.contentBounds, dark, canvas: off };
+    return off;
+  }
+
   function drawMinimap(viewW: number, viewH: number, dark: boolean) {
     const mm = minimapRef.current;
     if (!mm) return;
@@ -659,10 +720,7 @@ export function DrawingCanvas({
     const oy = (MINIMAP_H - wh * s) / 2;
 
     ctx.clearRect(0, 0, MINIMAP_W, MINIMAP_H);
-    ctx.fillStyle = dark ? "#18181b" : "#f4f4f5";
-    ctx.fillRect(0, 0, MINIMAP_W, MINIMAP_H);
-    ctx.strokeStyle = dark ? "#3f3f46" : "#a1a1aa";
-    ctx.strokeRect(ox, oy, ww * s, wh * s);
+    ctx.drawImage(getMinimapBase(dark), 0, 0);
 
     // Viewport rect: world extent currently visible
     const cam = st.current.cam;
@@ -716,9 +774,23 @@ export function DrawingCanvas({
     return { px: e.clientX - rect.left, py: e.clientY - rect.top };
   }
 
+  // Scale clamps derived from content: min = fit-scale of the raw bbox × 0.2
+  // (can't zoom out beyond 5× "whole drawing"), max = 1 drawing unit ≈ 200px.
+  function scaleLimits(): { min: number; max: number } {
+    const canvas = canvasRef.current;
+    const bbox = view.current.scene.bbox;
+    const ww = bbox.maxX - bbox.minX || 1;
+    const wh = bbox.maxY - bbox.minY || 1;
+    const W = canvas?.clientWidth || 1, H = canvas?.clientHeight || 1;
+    const fitRaw = Math.min(W / ww, H / wh);
+    return { min: Math.max(fitRaw * MIN_ZOOM_FIT_RATIO, 1e-12), max: MAX_PX_PER_UNIT };
+  }
+
   function zoomAt(px: number, py: number, factor: number) {
     const cam = st.current.cam;
-    const next = Math.min(Math.max(cam.scale * factor, 1e-9), 1e9);
+    const { min, max } = scaleLimits();
+    const next = Math.min(Math.max(cam.scale * factor, min), max);
+    if (next === cam.scale) return;
     const f = next / cam.scale;
     cam.offsetX = px - (px - cam.offsetX) * f;
     cam.offsetY = py - (py - cam.offsetY) * f;
@@ -733,7 +805,8 @@ export function DrawingCanvas({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const { px, py } = canvasPoint(e);
-      zoomAt(px, py, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      // Exponential factor: smooth on trackpads, ~10%/notch on mouse wheels
+      zoomAt(px, py, Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY));
     };
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => canvas.removeEventListener("wheel", onWheel);
@@ -805,7 +878,7 @@ export function DrawingCanvas({
     if (hit) onObjectClick?.(hit);
   }
 
-  function onDoubleClick() {
+  function onDoubleClick(e: React.MouseEvent<HTMLCanvasElement>) {
     const s = st.current;
     const v = view.current;
     if ((v.activeTool === "measure" || v.activeTool === "area") && s.toolPts.length > 0) {
@@ -816,7 +889,10 @@ export function DrawingCanvas({
       scheduleRender();
       return;
     }
-    fitView();
+    if (e.shiftKey) { fitView(); return; }
+    // Zoom in at the clicked point
+    const { px, py } = canvasPoint(e);
+    zoomAt(px, py, DBLCLICK_ZOOM);
   }
 
   // Keyboard: F fit · +/- zoom · Escape ends measure/area/calibration
@@ -827,6 +903,10 @@ export function DrawingCanvas({
       const canvas = canvasRef.current;
       if (!canvas) return;
       if (e.key === "f" || e.key === "F") { e.preventDefault(); fitView(); }
+      else if (e.key === ")" || (e.key === "0" && e.shiftKey)) {
+        // Shift+0 → fit toàn bộ (raw bbox, kể cả entities lạc)
+        e.preventDefault(); fitView(view.current.scene.bbox);
+      } else if (e.key === "0") { e.preventDefault(); fitView(); }
       else if (e.key === "+" || e.key === "=") {
         zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, 1.25);
       } else if (e.key === "-" || e.key === "_") {
@@ -1016,7 +1096,7 @@ export function DrawingCanvas({
 
       {/* Hint bar */}
       <div className="absolute bottom-2 left-2 z-10 text-[9px] text-zinc-500 select-none pointer-events-none">
-        Lăn chuột = Zoom · Kéo = Pan · DblClick / F = Fit
+        Lăn chuột = Zoom · Kéo = Pan · DblClick = Phóng to · Shift+DblClick / F = Vừa khung
       </div>
 
       {/* "Mất bản vẽ" — viewport no longer intersects the drawing */}
