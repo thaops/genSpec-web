@@ -465,6 +465,12 @@ export type Action =
       entityId?: string;
     }
   | { type: "set_sheets"; sheets: Sheet[] }
+  | {
+      type: "format_sheet";
+      sheetId: string;
+      columnWidths?: Record<string, number>;
+      cells?: Array<{ cell: string; s: Record<string, unknown> }>;
+    }
   | { type: "clear" };
 
 export interface CopilotSource {

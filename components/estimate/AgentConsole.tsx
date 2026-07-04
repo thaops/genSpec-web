@@ -36,6 +36,7 @@ const ACTION_TYPE_VI: Record<string, string> = {
   update_price: "cập nhật giá",
   set_project_info: "cập nhật thông tin dự án",
   set_sheets: "cập nhật bảng tính",
+  format_sheet: "định dạng bảng",
   clear: "xóa dữ liệu",
 };
 
@@ -449,7 +450,7 @@ export function AgentConsole({
   // Non-cell actions that do NOT touch sheet cellData — after a full live
   // drive of the cells, the grid is already correct and must not be reloaded
   // (a reinit right after the animation destroys the "AI is typing" feel).
-  const SHEET_TOUCHING_TYPES = new Set(["set_sheets", "clear"]);
+  const SHEET_TOUCHING_TYPES = new Set(["set_sheets", "format_sheet", "clear"]);
 
   interface DriveResult {
     fullyDriven: boolean;
@@ -1331,6 +1332,13 @@ interface ChatPanelProps {
   onResumeDismiss: () => void;
 }
 
+// Suggestion chips shown above the composer while the thread is empty
+const COMPOSER_HINTS = [
+  "⚡ Bóc khối lượng bản vẽ",
+  "Tra định mức <mã>",
+  "Cập nhật giá theo tỉnh…",
+];
+
 function colLetter(col: number): string {
   let letter = "";
   let n = col;
@@ -1407,7 +1415,7 @@ function ChatPanel({
 
         {/* F4: resume card — local only, never persisted */}
         {historyLoaded && resumeSummary && (
-          <div className="animate-slide-up rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-3 text-sm text-zinc-200">
+          <div className="animate-slide-up rounded-2xl border border-zinc-800/60 bg-zinc-900/60 px-3.5 py-3 text-sm leading-relaxed text-zinc-200">
             <p className="whitespace-pre-line">{resumeSummary}</p>
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               <button
@@ -1453,7 +1461,12 @@ function ChatPanel({
           ) : null;
           if (item.kind === "user") {
             return (
-              <ChatBubble key={item.id} role="user" text={item.text ?? ""} />
+              <ChatBubble
+                key={item.id}
+                role="user"
+                text={item.text ?? ""}
+                timestamp={item.timestamp}
+              />
             );
           }
           if (item.kind === "error") {
@@ -1463,13 +1476,19 @@ function ChatPanel({
                 role="assistant"
                 text={item.text ?? ""}
                 error
+                timestamp={item.timestamp}
               />
             );
           }
           if (item.kind === "assistant") {
             return (
               <div key={item.id}>
-                <ChatBubble role="assistant" text={item.text ?? ""} thinking={item.thinking} />
+                <ChatBubble
+                  role="assistant"
+                  text={item.text ?? ""}
+                  thinking={item.thinking}
+                  timestamp={item.timestamp}
+                />
                 {undoBtn}
               </div>
             );
@@ -1526,11 +1545,14 @@ function ChatPanel({
           </div>
         )}
         {(streaming || !!typedTail) && (
-          <div className="flex animate-slide-up justify-start">
-            <div className="max-w-[88%] rounded-2xl border border-zinc-800 bg-zinc-900/70 px-3.5 py-2.5 text-sm text-zinc-200">
+          <div className="flex animate-slide-up justify-start gap-2">
+            <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-500/10 text-accent-300">
+              <SparkleIcon className="h-4 w-4" />
+            </span>
+            <div className="max-w-[88%] rounded-2xl border border-zinc-800/60 bg-zinc-900/60 px-3.5 py-3 text-sm leading-relaxed text-zinc-200">
               {/* Live reasoning (Gemini thought summaries) — dim block above the answer */}
               {streaming && liveThinking && (
-                <details className="mb-2 rounded-lg bg-zinc-950/60 px-2.5 py-1.5" open={!typedTail}>
+                <details className="mb-2 rounded-lg bg-zinc-900/60 px-2.5 py-1.5" open={!typedTail}>
                   <summary className="flex cursor-pointer items-center gap-1.5 text-[10px] font-medium text-zinc-500 select-none">
                     <span className="h-1 w-1 animate-pulse rounded-full bg-accent-400" />
                     Đang suy nghĩ…
@@ -1586,6 +1608,21 @@ function ChatPanel({
       )}
 
       <div className="border-t border-zinc-800 p-3">
+        {/* Hint chips — only on an empty thread, click fills the input */}
+        {historyLoaded && thread.length === 0 && !streaming && !activeTask && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {COMPOSER_HINTS.map((h) => (
+              <button
+                key={h}
+                type="button"
+                onClick={() => setInput(h)}
+                className="rounded-full border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:border-accent-500/40 hover:text-accent-300"
+              >
+                {h}
+              </button>
+            ))}
+          </div>
+        )}
         {(selectionLabel || activeDrawingId) && (
           <div className="mb-2 flex items-center gap-1.5 flex-wrap">
             {selectionLabel && (
@@ -1652,41 +1689,71 @@ function UndoButton({
 
 // ── Chat Bubble ───────────────────────────────────────────────────────────────
 
+function formatBubbleTime(iso?: string): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return new Date(t).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function ChatBubble({
   role,
   text,
   error,
   thinking,
+  timestamp,
 }: {
   role: "user" | "assistant";
   text: string;
   error?: boolean;
   thinking?: string;
+  timestamp?: string;
 }) {
   const isUser = role === "user";
+  const time = formatBubbleTime(timestamp);
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "animate-slide-up max-w-[88%] whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm",
-          isUser
-            ? "bg-accent-600 text-white"
-            : error
-              ? "border border-rose-500/30 bg-rose-500/5 text-rose-200"
-              : "border border-zinc-800 bg-zinc-900/70 text-zinc-200"
+    <div
+      className={cn(
+        "group flex gap-2",
+        isUser ? "justify-end" : "justify-start"
+      )}
+    >
+      {!isUser && (
+        <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-500/10 text-accent-300">
+          <SparkleIcon className="h-4 w-4" />
+        </span>
+      )}
+      <div className={cn("max-w-[88%]", isUser ? "text-right" : "text-left")}>
+        <div
+          className={cn(
+            "animate-slide-up whitespace-pre-line px-3.5 py-3 text-left text-sm leading-relaxed",
+            isUser
+              ? "rounded-2xl rounded-br-md bg-accent-600 text-white"
+              : error
+                ? "rounded-2xl border border-rose-500/30 bg-rose-500/5 text-rose-200"
+                : "rounded-2xl border border-zinc-800/60 bg-zinc-900/60 text-zinc-200"
+          )}
+        >
+          {thinking && !isUser && (
+            <details className="mb-1.5 rounded-lg bg-zinc-900/60 px-2.5 py-1.5">
+              <summary className="cursor-pointer select-none text-[10px] font-medium text-zinc-500">
+                💭 Suy nghĩ của AI
+              </summary>
+              <p className="mt-1 whitespace-pre-line text-[11px] italic leading-relaxed text-zinc-500">
+                {thinking}
+              </p>
+            </details>
+          )}
+          {text}
+        </div>
+        {time && (
+          <span className="mt-0.5 block text-[10px] text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100">
+            {time}
+          </span>
         )}
-      >
-        {thinking && !isUser && (
-          <details className="mb-1.5 rounded-lg bg-zinc-950/60 px-2.5 py-1.5">
-            <summary className="cursor-pointer select-none text-[10px] font-medium text-zinc-500">
-              💭 Suy nghĩ của AI
-            </summary>
-            <p className="mt-1 whitespace-pre-line text-[11px] italic leading-relaxed text-zinc-500">
-              {thinking}
-            </p>
-          </details>
-        )}
-        {text}
       </div>
     </div>
   );

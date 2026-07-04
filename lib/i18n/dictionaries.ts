@@ -282,8 +282,7 @@ const vi = {
   copilot: {
     title: "Trợ lý AI",
     subtitle: "Mô tả công trình, AI lập dự toán cho bạn",
-    placeholder:
-      "Mô tả công trình của bạn… ví dụ: nhà phố 3 tầng 5×20m tại Bình Dương. Bạn cũng có thể đính kèm PDF/Excel bản vẽ hoặc bảng khối lượng.",
+    placeholder: "Hỏi hoặc ra lệnh cho QS Agent…",
     send: "Gửi",
     attach: "Đính kèm tệp",
     attachHint: "PDF, ảnh bản vẽ, Excel",
@@ -721,8 +720,7 @@ const en = {
   copilot: {
     title: "AI Copilot",
     subtitle: "Describe the project, the AI builds the estimate",
-    placeholder:
-      "Describe your project… e.g. a 3-storey townhouse 5×20m in Binh Duong. You can also attach PDF/Excel drawings or a bill of quantities.",
+    placeholder: "Ask or instruct the QS Agent…",
     send: "Send",
     attach: "Attach files",
     attachHint: "PDF, drawing images, Excel",

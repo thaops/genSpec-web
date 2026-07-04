@@ -99,6 +99,25 @@ export function ProposalCard({
         <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-accent-300">
           <SparkleIcon className="h-3.5 w-3.5" />
           {t("copilot.proposalTitle")}
+          <span
+            className={cn(
+              "ml-auto rounded-full border px-2 py-px text-[10px] font-medium normal-case tracking-normal",
+              state === "applied"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : state === "discarded"
+                  ? "border-zinc-700 bg-zinc-800/60 text-zinc-400"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+            )}
+          >
+            {state === "applied"
+              ? "Đã áp dụng"
+              : state === "discarded"
+                ? "Đã bỏ"
+                : state === "applying"
+                  ? "Đang áp dụng…"
+                  : "Chờ duyệt"}
+          </span>
+          {proposal.validation && <ScoreBadge score={proposal.validation.score} />}
         </div>
 
         {proposal.thinking?.length > 0 && (
@@ -297,7 +316,7 @@ export function ProposalCard({
             </Button>
             <Button
               size="sm"
-              variant="secondary"
+              variant="ghost"
               onClick={onDiscard}
               disabled={state === "applying"}
             >
@@ -323,6 +342,27 @@ export function ProposalCard({
         )}
       </div>
     </div>
+  );
+}
+
+// Validation self-check score (0-100) as a colored badge: ≥80 ok, ≥60 warn, <60 bad
+function ScoreBadge({ score }: { score: number }) {
+  const cls =
+    score >= 80
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+      : score >= 60
+        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+        : "border-rose-500/30 bg-rose-500/10 text-rose-300";
+  return (
+    <span
+      title="Điểm tự kiểm tra của AI"
+      className={cn(
+        "rounded-full border px-2 py-px font-mono text-[10px] font-semibold tabular-nums tracking-normal",
+        cls
+      )}
+    >
+      {score}
+    </span>
   );
 }
 
