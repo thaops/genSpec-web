@@ -224,12 +224,24 @@ export function DrawingWorkspace({
     return () => { cancelled = true; };
   }, [estimateId, activeDrawingId, activeDrawing?.parseStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Per-drawing calibration persisted in localStorage
+  // Per-drawing calibration persisted in localStorage.
+  // Discard stale auto entries with factor 1 ("đơn vị bản vẽ") saved by the old
+  // confirm-gate — they override the INSUNITS heuristic and produce numbers
+  // that are off by orders of magnitude (119 km of walls…). Manual 2-point
+  // calibrations are always kept.
   useEffect(() => {
     if (!activeDrawingId) return;
     try {
       const raw = localStorage.getItem(`genspec_drawing_cal_${activeDrawingId}`);
-      setCalibration(raw ? (JSON.parse(raw) as DrawingCalibration) : null);
+      const cal = raw ? (JSON.parse(raw) as DrawingCalibration) : null;
+      // Any persisted AUTO calibration is legacy (old confirm-gate) — auto is
+      // meant to be recomputed from the scene each load, never stored.
+      if (cal?.auto) {
+        localStorage.removeItem(`genspec_drawing_cal_${activeDrawingId}`);
+        setCalibration(null);
+      } else {
+        setCalibration(cal);
+      }
     } catch {
       setCalibration(null);
     }
