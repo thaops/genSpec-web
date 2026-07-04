@@ -590,6 +590,7 @@ export default function EstimateEditorPage() {
         unitsPerDrawingUnit: payload.unitsPerDrawingUnit,
         assumptions: payload.assumptions,
         rejectedObjectIds: payload.rejectedObjectIds,
+        region: payload.region,
       });
       const proposalMsgId = copilotRef.current?.injectProposal(proposal, displayText);
       updateJob(job.id, {

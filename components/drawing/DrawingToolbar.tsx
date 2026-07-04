@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, MousePointer2, Ruler, Search, Sparkles, SquareDashed } from "lucide-react";
+import { BoxSelect, Layers, MousePointer2, Ruler, Search, Sparkles, SquareDashed } from "lucide-react";
 
 export type DrawingTool =
   | "pointer"
@@ -9,6 +9,7 @@ export type DrawingTool =
   | "measure"
   | "count"
   | "area"
+  | "scope"
   | "ai"
   | "layer"
   | "search"
@@ -28,6 +29,7 @@ const TOOLS: Tool[] = [
   { id: "pointer", Icon: MousePointer2,   label: "Pointer", shortcut: "V" },
   { id: "measure", Icon: Ruler,           label: "Measure", shortcut: "M" },
   { id: "area",    Icon: SquareDashed,    label: "Area",    shortcut: "A" },
+  { id: "scope",   Icon: BoxSelect,       label: "Vùng bóc", shortcut: "S" },
   { id: "layer",   Icon: Layers,          label: "Layers",  shortcut: "L" },
   { id: "search",  Icon: Search,          label: "Search",  shortcut: "F", dividerAfter: true },
   { id: "ai",      Icon: Sparkles,        label: "AI Detect", shortcut: "⌘D" },

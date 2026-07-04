@@ -6,7 +6,7 @@ import { api, API_URL } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 import { DxfViewer } from "./DxfViewer";
 import { DwgCanvasViewer } from "./DwgCanvasViewer";
-import { DrawingCanvas } from "./DrawingCanvas";
+import { DrawingCanvas, type ScopeRect } from "./DrawingCanvas";
 import { DrawingUpload } from "./DrawingUpload";
 import { ObjectInspector } from "./ObjectInspector";
 import { ReviewQueue, type ReviewStates, type ReviewStatus } from "./ReviewQueue";
@@ -71,8 +71,18 @@ export interface EngineTakeoffPayload {
   unitsPerDrawingUnit: number;
   assumptions: TakeoffEngineAssumptions;
   rejectedObjectIds: string[];
+  /** Vùng bóc user kéo chọn (world coords) — BE chỉ đo đối tượng có tâm trong vùng */
+  region?: ScopeRect;
   /** Legacy LLM prompt — page falls back to runTask(fallbackPrompt) on engine error */
   fallbackPrompt: string;
+}
+
+/** Tâm bbox của object có nằm trong vùng bóc không (world coords, Y-up). */
+function objectInScope(obj: DrawingObject, rect: ScopeRect): boolean {
+  const { x, y, w, h } = obj.boundingBox;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  return cx >= rect.x && cx <= rect.x + rect.w && cy >= rect.y && cy <= rect.y + rect.h;
 }
 
 export interface DrawingViewportInfo {
@@ -157,6 +167,8 @@ export function DrawingWorkspace({
   // Engine takeoff: assumptions popover (first ⚡ per drawing, or via ⚙)
   const [assumpOpen, setAssumpOpen] = useState(false);
   const [fitSignal, setFitSignal] = useState(0);
+  // Vùng bóc (scope): rect world-coords per drawing, persisted localStorage
+  const [scopeRect, setScopeRect] = useState<ScopeRect | null>(null);
   // Calibration gate dialog — holds the detected objects awaiting a decision
   // Track drawings already announced to avoid duplicate notifications
   const announcedDrawings = useRef<Set<string>>(new Set());
@@ -281,6 +293,26 @@ export function DrawingWorkspace({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
+
+  // Per-drawing scope rect (vùng bóc) persisted in localStorage
+  useEffect(() => {
+    if (!activeDrawingId) { setScopeRect(null); return; }
+    try {
+      const raw = localStorage.getItem(`genspec_takeoff_scope_${activeDrawingId}`);
+      setScopeRect(raw ? (JSON.parse(raw) as ScopeRect) : null);
+    } catch {
+      setScopeRect(null);
+    }
+  }, [activeDrawingId]);
+
+  function handleScopeChange(rect: ScopeRect | null) {
+    setScopeRect(rect);
+    if (!activeDrawingId) return;
+    try {
+      if (rect) localStorage.setItem(`genspec_takeoff_scope_${activeDrawingId}`, JSON.stringify(rect));
+      else localStorage.removeItem(`genspec_takeoff_scope_${activeDrawingId}`);
+    } catch { /* quota */ }
+  }
 
   // Per-drawing review states persisted in localStorage
   useEffect(() => {
@@ -437,11 +469,24 @@ export function DrawingWorkspace({
         return;
       }
       toastScaleHint();
-      const included = objs.filter((o) => reviewStates[o.id] !== "rejected");
+      let included = objs.filter((o) => reviewStates[o.id] !== "rejected");
       if (included.length === 0) return;
       const rejectedObjectIds = objs
         .filter((o) => reviewStates[o.id] === "rejected")
         .map((o) => o.id);
+      // Vùng bóc: summary/fallback prompt FE cũng chỉ đo objects trong vùng
+      // (đồng bộ với filter tâm-bbox phía BE)
+      if (scopeRect) {
+        const inScope = included.filter((o) => objectInScope(o, scopeRect));
+        if (inScope.length === 0) {
+          toast.error(
+            "Vùng bóc không chứa đối tượng nào",
+            "Kéo chọn lại vùng bao quanh phần bản vẽ cần bóc, hoặc xoá vùng để bóc toàn bộ."
+          );
+          return;
+        }
+        included = inScope;
+      }
       const summary = summarizeObjects(included, calibration);
       // Zoom the canvas to the content being measured so the user SEES the scope
       setFitSignal((k) => k + 1);
@@ -450,6 +495,7 @@ export function DrawingWorkspace({
         unitsPerDrawingUnit: calibration.unitsPerDrawingUnit,
         assumptions,
         rejectedObjectIds,
+        region: scopeRect ?? undefined,
         fallbackPrompt: buildFullTakeoffAction(included, activeDrawingId, calibration, summary, assumptions),
       });
     } finally {
@@ -515,6 +561,7 @@ export function DrawingWorkspace({
       const k = e.key.toLowerCase();
       if (k === "m") setActiveTool("measure");
       else if (k === "a") setActiveTool("area");
+      else if (k === "s") setActiveTool("scope");
       else if (k === "l") setLayerPanelOpen((v) => !v);
       else if (k === "v") setActiveTool("pointer");
     }
@@ -569,7 +616,7 @@ export function DrawingWorkspace({
   const isImage = isReady && activeDrawing.type === "image";
 
   const capabilities: DrawingTool[] = sceneActive
-    ? ["pointer", "measure", "area", "layer", "search", "ai"]
+    ? ["pointer", "measure", "area", "scope", "layer", "search", "ai"]
     : ["pointer", "search", "ai"];
 
   return (
@@ -591,6 +638,18 @@ export function DrawingWorkspace({
           <span className="uppercase text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">{activeDrawing.type}</span>
           {loadingObjects && <Spinner className="h-3 w-3 text-zinc-600" />}
           {objects.length > 0 && <span className="text-zinc-600">{objects.length} objects</span>}
+          {scopeRect && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-950/60 border border-blue-800/60 text-blue-300 text-[10px]">
+              🔲 Vùng bóc đã chọn
+              <button
+                onClick={() => handleScopeChange(null)}
+                className="text-blue-400 hover:text-blue-200 underline underline-offset-2"
+                title="Xoá vùng bóc — bóc toàn bộ bản vẽ"
+              >
+                Xoá
+              </button>
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-1.5">
             <button
               onClick={handleDetect}
@@ -604,11 +663,13 @@ export function DrawingWorkspace({
               <button
                 onClick={handleFullTakeoff}
                 disabled={!isReady || fullTakeoffRunning || detecting || takeoffBusy}
-                title="Bóc khối lượng toàn bộ bản vẽ vào sheet 'Khối lượng'"
+                title={scopeRect
+                  ? "Bóc khối lượng các đối tượng trong vùng đã chọn vào sheet 'Khối lượng'"
+                  : "Bóc khối lượng toàn bộ bản vẽ vào sheet 'Khối lượng'"}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white disabled:opacity-50 text-[11px] transition-colors"
               >
                 {fullTakeoffRunning || takeoffBusy ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-                <span>{takeoffBusy ? "Đang bóc…" : "Bóc toàn bộ"}</span>
+                <span>{takeoffBusy ? "Đang bóc…" : scopeRect ? "Bóc trong vùng" : "Bóc toàn bộ"}</span>
               </button>
               {onEngineTakeoff && (
                 <button
@@ -687,6 +748,8 @@ export function DrawingWorkspace({
               reviewStates={reviewStates}
               calibrationPromptKey={calibrationPromptKey}
               fitSignal={fitSignal}
+              scopeRect={scopeRect}
+              onScopeChange={handleScopeChange}
             />
           )}
           {sceneLoading && (

@@ -24,6 +24,14 @@ interface Camera {
   offsetY: number;
 }
 
+/** Vùng bóc (world coords, Y-up — cùng convention với DrawingObject.boundingBox) */
+export interface ScopeRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 interface DrawingCanvasProps {
   scene: DrawingScene;
   objects?: DrawingObject[];
@@ -43,6 +51,9 @@ interface DrawingCanvasProps {
   calibrationPromptKey?: number;
   // Bump to fit-to-content programmatically (e.g. ⚡ full takeoff starts)
   fitSignal?: number;
+  // Vùng bóc: rect world-coords hiển thị thường trực; tool "scope" kéo vẽ mới
+  scopeRect?: ScopeRect | null;
+  onScopeChange?: (rect: ScopeRect | null) => void;
 }
 
 const MIN_TEXT_PX = 4;
@@ -265,6 +276,8 @@ export function DrawingCanvas({
   reviewStates,
   calibrationPromptKey,
   fitSignal,
+  scopeRect,
+  onScopeChange,
 }: DrawingCanvasProps) {
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -304,6 +317,10 @@ export function DrawingCanvas({
     toolPts: [] as { x: number; y: number }[],
     toolHover: null as { x: number; y: number } | null,
     toolDone: false,
+    // scope tool: live drag rect (world coords)
+    scopeDragging: false,
+    scopeStart: null as { x: number; y: number } | null,
+    scopeCur: null as { x: number; y: number } | null,
     // camera scale at last fit → 100% reference for the zoom-% button
     fitScale: 1,
     // last HUD values pushed to React state (change-detection throttle)
@@ -314,10 +331,12 @@ export function DrawingCanvas({
   const view = useRef({
     scene, index, contentBounds, objects, selectedObjectId, activeTool, calibration,
     hiddenLayers, theme, calPts, hoverObject, calibrating, reviewStates,
+    scopeRect, onScopeChange,
   });
   view.current = {
     scene, index, contentBounds, objects, selectedObjectId, activeTool, calibration,
     hiddenLayers, theme, calPts, hoverObject, calibrating, reviewStates,
+    scopeRect, onScopeChange,
   };
 
   // ── Transform helpers ──────────────────────────────────────────────────────
@@ -528,6 +547,9 @@ export function DrawingCanvas({
     // 3 — measure / area / calibration overlays
     drawToolOverlay(ctx, dark);
 
+    // 4 — vùng bóc: dim ngoài + dashed rect + nút X (hiển thị thường trực)
+    drawScopeOverlay(ctx, W, H);
+
     drawMinimap(W, H, dark);
     updateHud(W, H);
   }
@@ -663,6 +685,72 @@ export function DrawingCanvas({
       ctx.fillText(suffix, lx + tw, ly);
       ctx.font = "11px sans-serif";
     }
+  }
+
+  // ── Scope (vùng bóc) overlay ───────────────────────────────────────────────
+  // Rect đang kéo (live) hoặc rect đã chốt (props). World Y-up → screen top
+  // là w2sY(y + h). Nút X vẽ ở góc trên-phải, hit-test trong onPointerUp.
+  const SCOPE_CLOSE_R = 8;
+
+  function currentScopeScreenRect(): { sx: number; sy: number; sw: number; sh: number; live: boolean } | null {
+    const s = st.current;
+    const v = view.current;
+    if (s.scopeDragging && s.scopeStart && s.scopeCur) {
+      const x0 = Math.min(s.scopeStart.x, s.scopeCur.x);
+      const x1 = Math.max(s.scopeStart.x, s.scopeCur.x);
+      const y0 = Math.min(s.scopeStart.y, s.scopeCur.y);
+      const y1 = Math.max(s.scopeStart.y, s.scopeCur.y);
+      return { sx: w2sX(x0), sy: w2sY(y1), sw: (x1 - x0) * s.cam.scale, sh: (y1 - y0) * s.cam.scale, live: true };
+    }
+    if (v.scopeRect) {
+      const r = v.scopeRect;
+      return { sx: w2sX(r.x), sy: w2sY(r.y + r.h), sw: r.w * s.cam.scale, sh: r.h * s.cam.scale, live: false };
+    }
+    return null;
+  }
+
+  function drawScopeOverlay(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    const r = currentScopeScreenRect();
+    if (!r) return;
+    const { sx, sy, sw, sh } = r;
+    // Dim vùng ngoài (4 dải quanh rect)
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(0, 0, W, Math.max(sy, 0));
+    ctx.fillRect(0, sy + sh, W, Math.max(H - sy - sh, 0));
+    ctx.fillRect(0, sy, Math.max(sx, 0), sh);
+    ctx.fillRect(sx + sw, sy, Math.max(W - sx - sw, 0), sh);
+    // Dashed accent border
+    ctx.strokeStyle = "#3b82f6";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(sx, sy, sw, sh);
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+    // Nút X ở góc trên-phải (chỉ khi rect đã chốt)
+    if (!r.live) {
+      ctx.beginPath();
+      ctx.arc(sx + sw, sy, SCOPE_CLOSE_R, 0, Math.PI * 2);
+      ctx.fillStyle = "#18181b";
+      ctx.fill();
+      ctx.strokeStyle = "#3b82f6";
+      ctx.stroke();
+      ctx.strokeStyle = "#e4e4e7";
+      ctx.beginPath();
+      ctx.moveTo(sx + sw - 3.5, sy - 3.5);
+      ctx.lineTo(sx + sw + 3.5, sy + 3.5);
+      ctx.moveTo(sx + sw + 3.5, sy - 3.5);
+      ctx.lineTo(sx + sw - 3.5, sy + 3.5);
+      ctx.stroke();
+    }
+  }
+
+  /** Click trúng nút X của scope rect (screen coords)? */
+  function scopeCloseHit(px: number, py: number): boolean {
+    const r = view.current.scopeRect;
+    if (!r) return false;
+    const sx = w2sX(r.x + r.w);
+    const sy = w2sY(r.y + r.h);
+    return Math.hypot(px - sx, py - sy) <= SCOPE_CLOSE_R + 2;
   }
 
   // Minimap base (bg + frame + entity density dots) — rebuilt only when the
@@ -825,6 +913,16 @@ export function DrawingCanvas({
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     if (e.button !== 0 && e.button !== 1) return;
     e.currentTarget.setPointerCapture(e.pointerId);
+    const v = view.current;
+    if (e.button === 0 && v.activeTool === "scope" && !v.calibrating) {
+      // Kéo vẽ vùng bóc (world coords) — không pan
+      const { px, py } = canvasPoint(e);
+      st.current.scopeDragging = true;
+      st.current.scopeStart = { x: s2wX(px), y: s2wY(py) };
+      st.current.scopeCur = st.current.scopeStart;
+      scheduleRender();
+      return;
+    }
     st.current.dragging = true;
     st.current.dragMoved = 0;
     st.current.lastX = e.clientX;
@@ -834,6 +932,11 @@ export function DrawingCanvas({
   function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     const s = st.current;
     const { px, py } = canvasPoint(e);
+    if (s.scopeDragging) {
+      s.scopeCur = { x: s2wX(px), y: s2wY(py) };
+      scheduleRender();
+      return;
+    }
     if (s.dragging) {
       const dx = e.clientX - s.lastX, dy = e.clientY - s.lastY;
       s.dragMoved += Math.abs(dx) + Math.abs(dy);
@@ -862,6 +965,30 @@ export function DrawingCanvas({
 
   function onPointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
     const s = st.current;
+    if (s.scopeDragging) {
+      s.scopeDragging = false;
+      const start = s.scopeStart, cur = s.scopeCur;
+      s.scopeStart = null;
+      s.scopeCur = null;
+      if (start && cur) {
+        const wpx = Math.abs(cur.x - start.x) * s.cam.scale;
+        const hpx = Math.abs(cur.y - start.y) * s.cam.scale;
+        if (wpx > 4 && hpx > 4) {
+          view.current.onScopeChange?.({
+            x: Math.min(start.x, cur.x),
+            y: Math.min(start.y, cur.y),
+            w: Math.abs(cur.x - start.x),
+            h: Math.abs(cur.y - start.y),
+          });
+        } else {
+          // Kéo quá nhỏ → coi là click: có thể là bấm nút X xoá scope
+          const { px, py } = canvasPoint(e);
+          if (scopeCloseHit(px, py)) view.current.onScopeChange?.(null);
+        }
+      }
+      scheduleRender();
+      return;
+    }
     const wasDrag = s.dragging && s.dragMoved > 5;
     s.dragging = false;
     if (wasDrag || e.button !== 0) return;
@@ -870,6 +997,12 @@ export function DrawingCanvas({
     const { px, py } = canvasPoint(e);
     const wx = s2wX(px), wy = s2wY(py);
     const v = view.current;
+
+    // Nút X của vùng bóc hoạt động với mọi tool (rect hiển thị thường trực)
+    if (v.scopeRect && scopeCloseHit(px, py)) {
+      v.onScopeChange?.(null);
+      return;
+    }
 
     if (v.calibrating) {
       if (v.calPts.length < 2) setCalPts([...v.calPts, { x: wx, y: wy }]);
@@ -921,6 +1054,10 @@ export function DrawingCanvas({
       } else if (e.key === "-" || e.key === "_") {
         zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, 1 / 1.25);
       } else if (e.key === "Escape") {
+        // Đang kéo vùng bóc → huỷ thao tác kéo (không xoá rect đã chốt)
+        st.current.scopeDragging = false;
+        st.current.scopeStart = null;
+        st.current.scopeCur = null;
         st.current.toolPts = [];
         st.current.toolDone = false;
         setCalPts([]);
@@ -952,7 +1089,7 @@ export function DrawingCanvas({
 
   // Repaint on visual state changes
   useEffect(() => { scheduleRender(); },
-    [selectedObjectId, hiddenLayers, theme, objects, hoverObject, calPts, reviewStates, scheduleRender]);
+    [selectedObjectId, hiddenLayers, theme, objects, hoverObject, calPts, reviewStates, scopeRect, scheduleRender]);
 
   // Review Queue focus: pan/zoom camera to the object's bbox (fit + padding)
   useEffect(() => {
@@ -1033,7 +1170,7 @@ export function DrawingCanvas({
     ? Math.hypot(calPts[1].x - calPts[0].x, calPts[1].y - calPts[0].y)
     : null;
 
-  const cursor = calibrating || activeTool === "measure" || activeTool === "area"
+  const cursor = calibrating || activeTool === "measure" || activeTool === "area" || activeTool === "scope"
     ? "cursor-crosshair"
     : hoverObject
       ? "cursor-pointer"

@@ -99,7 +99,7 @@ export function PdfViewer({
   // Determine cursor
   const cursorMap: Record<DrawingTool, string> = {
     pointer: "default", pan: "grab", zoom: "zoom-in",
-    measure: "crosshair", count: "crosshair", area: "crosshair",
+    measure: "crosshair", count: "crosshair", area: "crosshair", scope: "crosshair",
     search: "default", layer: "default", compare: "default", ai: "default",
   };
 

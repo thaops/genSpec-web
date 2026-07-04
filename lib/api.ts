@@ -586,6 +586,8 @@ export interface TakeoffEngineBody {
   unitsPerDrawingUnit: number;
   assumptions: TakeoffEngineAssumptions;
   rejectedObjectIds?: string[];
+  /** Vùng bóc (world coords): BE chỉ đo đối tượng có tâm bbox trong vùng */
+  region?: { x: number; y: number; w: number; h: number };
 }
 
 export function runTakeoffEngine(
