@@ -567,6 +567,15 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
+/** Meta của một phiên chat (không kèm messages) — GET /estimates/:id/chat-sessions */
+export interface ChatSessionMeta {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+
 // ---------- Applied actions record (cell "Vì sao?" popover) ----------
 
 // One cell edit persisted from an applied `update_cells` action.

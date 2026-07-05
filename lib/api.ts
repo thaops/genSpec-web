@@ -8,6 +8,7 @@ import type {
   CopilotStep,
   CopilotProposal,
   ConversationMessage,
+  ChatSessionMeta,
   InsightItem,
   OfficialFeedItem,
   Action,
@@ -178,7 +179,8 @@ async function copilotStream(
   selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number },
   activeDrawingId?: string,
   selectedObjectId?: string,
-  drawingContext?: { page?: number; scale?: number; activeTool?: string; layer?: string; objectType?: string }
+  drawingContext?: { page?: number; scale?: number; activeTool?: string; layer?: string; objectType?: string },
+  chatSessionId?: string
 ): Promise<void> {
   const headers: Record<string, string> = { Accept: "text/event-stream" };
   const token = getToken();
@@ -192,6 +194,7 @@ async function copilotStream(
   if (activeDrawingId) form.append("drawingId", activeDrawingId);
   if (selectedObjectId) form.append("objectId", selectedObjectId);
   if (drawingContext) form.append("drawingContext", JSON.stringify(drawingContext));
+  if (chatSessionId) form.append("chatSessionId", chatSessionId);
   if (handlers.editPermission !== undefined) {
     form.append("editPermission", String(handlers.editPermission));
   }
@@ -340,9 +343,10 @@ export const api = {
     selectedRange?: { startRow: number; startCol: number; endRow: number; endCol: number },
     activeDrawingId?: string,
     selectedObjectId?: string,
-    drawingContext?: { page?: number; scale?: number; activeTool?: string; layer?: string; objectType?: string }
+    drawingContext?: { page?: number; scale?: number; activeTool?: string; layer?: string; objectType?: string },
+    chatSessionId?: string
   ): Promise<void> =>
-    copilotStream(id, message, files, handlers, activeSheetId, selectedRange, activeDrawingId, selectedObjectId, drawingContext),
+    copilotStream(id, message, files, handlers, activeSheetId, selectedRange, activeDrawingId, selectedObjectId, drawingContext, chatSessionId),
 
   // ---------- Catalog ----------
   catalog: (q: string) =>
@@ -372,7 +376,30 @@ export const api = {
     return res.json() as Promise<Estimate>;
   },
 
-  // ---------- Conversation ----------
+  // ---------- Chat sessions (phiên chat độc lập) ----------
+  listChatSessions: (id: string) =>
+    request<ChatSessionMeta[]>(`/estimates/${id}/chat-sessions`),
+
+  createChatSession: (id: string) =>
+    request<ChatSessionMeta>(`/estimates/${id}/chat-sessions`, {
+      method: "POST",
+    }),
+
+  getChatSession: (id: string, sid: string) =>
+    request<ConversationMessage[]>(`/estimates/${id}/chat-sessions/${sid}`),
+
+  saveChatSession: (id: string, sid: string, messages: ConversationMessage[]) =>
+    request<{ ok: true }>(`/estimates/${id}/chat-sessions/${sid}`, {
+      method: "PUT",
+      body: { messages },
+    }),
+
+  deleteChatSession: (id: string, sid: string) =>
+    request<{ ok: true }>(`/estimates/${id}/chat-sessions/${sid}`, {
+      method: "DELETE",
+    }),
+
+  // ---------- Conversation (legacy — session mới nhất) ----------
   getConversation: (id: string) =>
     request<ConversationMessage[]>(`/estimates/${id}/conversation`),
 

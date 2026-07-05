@@ -6,6 +6,7 @@ import type {
   Action,
   AgentTaskState,
   AppliedActionsRecord,
+  ChatSessionMeta,
   ConversationMessage,
   CopilotProposal,
   Drawing,
@@ -23,7 +24,7 @@ import { type TimelineStep } from "./LiveTimeline";
 import { ProposalCard, type ProposalState } from "./ProposalCard";
 import { HistoryTimeline } from "./HistoryTimeline";
 import { SparkleIcon, ChevronRightIcon } from "@/components/ui/icons";
-import { Bot, History as HistoryIcon, Lock, MapPin, Pause, Ruler, Undo2 } from "lucide-react";
+import { Bot, History as HistoryIcon, Lock, MapPin, Pause, Plus, Ruler, Trash2, Undo2 } from "lucide-react";
 import { takePendingTask, type PendingTask } from "@/lib/pendingTask";
 import { TaskCard } from "./TaskCard";
 import { addJob, updateJob, appendJobLog } from "@/components/ui/JobCenter";
@@ -195,6 +196,11 @@ export function AgentConsole({
 }: Props) {
   const toast = useToast();
   const [showHistory, setShowHistory] = useState(false);
+  // History panel: "sessions" = phiên chat, "changes" = patch timeline
+  const [historyTab, setHistoryTab] = useState<"sessions" | "changes">("sessions");
+  // Phiên chat hiện hành — mọi load/save/stream đều theo id này
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<ChatSessionMeta[]>([]);
   const [thread, setThread] = useState<ConversationMessage[]>([]);
   const [proposals, setProposals] = useState<ProposalItem[]>([]);
   const [liveSteps, setLiveSteps] = useState<TimelineStep[]>([]);
@@ -227,6 +233,8 @@ export function AgentConsole({
   const isAtBottomRef = useRef(true);
   const prevThreadLenRef = useRef(0);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Session hiện hành cho save/flush (tránh closure stale trong timeout/unload)
+  const sessionIdRef = useRef<string | null>(null);
   // Silent agent task → JobCenter mirroring (set only while a runTask is live)
   const taskJobIdRef = useRef<string | null>(null);
   const taskStartRef = useRef(0);
@@ -256,73 +264,100 @@ export function AgentConsole({
     setEditPermission(saved !== "0");
   }, [estimate.id]);
 
-  // Load conversation history
+  // Khôi phục thread + proposals từ messages của một session.
+  // withResume: chỉ khi mở lại session cũ (KHÔNG cho session mới tạo).
+  const restoreSessionMessages = useCallback(
+    (msgs: ConversationMessage[], withResume: boolean) => {
+      setThread(msgs);
+      const restored: ProposalItem[] = [];
+      for (const m of msgs) {
+        if (m.kind === "proposal" && m.proposal) {
+          restored.push({
+            msgId: m.id,
+            proposal: m.proposal,
+            state: (m.proposalState as ProposalState) ?? "pending",
+            appliedCount: m.appliedCount,
+            timestamp: m.timestamp,
+          });
+        }
+      }
+      setProposals(restored);
+      // F4: resume card when the last message is older than 30 minutes
+      let summary: string | null = null;
+      const last = msgs[msgs.length - 1];
+      if (withResume && last && Date.now() - Date.parse(last.timestamp) > 30 * 60 * 1000) {
+        const lines: string[] = [];
+        const lastUser = [...msgs].reverse().find((m) => m.kind === "user");
+        if (lastUser?.text) {
+          const cut =
+            lastUser.text.length > 100
+              ? lastUser.text.slice(0, 100) + "…"
+              : lastUser.text;
+          lines.push(`Yêu cầu gần nhất: "${cut}"`);
+        }
+        const pending = msgs.filter(
+          (m) =>
+            m.kind === "proposal" &&
+            m.proposal &&
+            (m.proposalState ?? "pending") === "pending"
+        ).length;
+        if (pending > 0) {
+          lines.push(`Còn ${pending} đề xuất chưa áp dụng — xem trong chat.`);
+        }
+        const ph = estimateRef.current.patchHistory ?? [];
+        const lastPatch = ph[ph.length - 1];
+        if (lastPatch?.description) {
+          lines.push(`Thay đổi gần nhất: ${lastPatch.description}`);
+        }
+        if (lines.length > 0) summary = `👋 Phiên trước:\n${lines.join("\n")}`;
+      }
+      setResumeSummary(summary);
+    },
+    []
+  );
+
+  // Load chat sessions: mở lại session mới nhất; chưa có → tạo session đầu tiên
   useEffect(() => {
     let alive = true;
-    api
-      .getConversation(estimate.id)
-      .then((msgs) => {
+    (async () => {
+      try {
+        const list = await api.listChatSessions(estimate.id);
         if (!alive) return;
-        setThread(msgs);
-        const restored: ProposalItem[] = [];
-        for (const m of msgs) {
-          if (m.kind === "proposal" && m.proposal) {
-            restored.push({
-              msgId: m.id,
-              proposal: m.proposal,
-              state: (m.proposalState as ProposalState) ?? "pending",
-              appliedCount: m.appliedCount,
-              timestamp: m.timestamp,
-            });
-          }
+        setSessions(list);
+        if (list.length > 0) {
+          const latest = list[0]; // BE trả mới nhất trước
+          const msgs = await api.getChatSession(estimate.id, latest.id);
+          if (!alive) return;
+          setSessionId(latest.id);
+          sessionIdRef.current = latest.id;
+          restoreSessionMessages(msgs, true);
+        } else {
+          const meta = await api.createChatSession(estimate.id);
+          if (!alive) return;
+          setSessions([meta]);
+          setSessionId(meta.id);
+          sessionIdRef.current = meta.id;
+          restoreSessionMessages([], false);
         }
-        if (restored.length) setProposals(restored);
-        // F4: resume card when the last message is older than 30 minutes
-        const last = msgs[msgs.length - 1];
-        if (last && Date.now() - Date.parse(last.timestamp) > 30 * 60 * 1000) {
-          const lines: string[] = [];
-          const lastUser = [...msgs].reverse().find((m) => m.kind === "user");
-          if (lastUser?.text) {
-            const cut =
-              lastUser.text.length > 100
-                ? lastUser.text.slice(0, 100) + "…"
-                : lastUser.text;
-            lines.push(`Yêu cầu gần nhất: "${cut}"`);
-          }
-          const pending = msgs.filter(
-            (m) =>
-              m.kind === "proposal" &&
-              m.proposal &&
-              (m.proposalState ?? "pending") === "pending"
-          ).length;
-          if (pending > 0) {
-            lines.push(`Còn ${pending} đề xuất chưa áp dụng — xem trong chat.`);
-          }
-          const ph = estimateRef.current.patchHistory ?? [];
-          const lastPatch = ph[ph.length - 1];
-          if (lastPatch?.description) {
-            lines.push(`Thay đổi gần nhất: ${lastPatch.description}`);
-          }
-          if (lines.length > 0) {
-            setResumeSummary(`👋 Phiên trước:\n${lines.join("\n")}`);
-          }
-        }
-        setHistoryLoaded(true);
-      })
-      .catch(() => {
+      } catch {
+        /* offline → chat vẫn dùng được, chỉ không persist */
+      } finally {
         if (alive) setHistoryLoaded(true);
-      });
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, [estimate.id]);
+  }, [estimate.id, restoreSessionMessages]);
 
-  // Save conversation debounced 1s
+  // Save conversation debounced 1s — theo session hiện hành
   const saveConversation = useCallback(
     (msgs: ConversationMessage[]) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
-        api.saveConversation(estimate.id, msgs).catch(() => { });
+        const sid = sessionIdRef.current;
+        if (!sid) return;
+        api.saveChatSession(estimate.id, sid, msgs).catch(() => { });
       }, 1000);
     },
     [estimate.id]
@@ -371,8 +406,10 @@ export function AgentConsole({
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
+        const sid = sessionIdRef.current;
+        if (!sid) return;
         // Fire immediately (best-effort, browser may not await fetch on unload)
-        api.saveConversation(estimate.id, thread).catch(() => {});
+        api.saveChatSession(estimate.id, sid, thread).catch(() => {});
       }
     }
     window.addEventListener("beforeunload", flush);
@@ -595,6 +632,86 @@ export function AgentConsole({
     }
     return items;
   }, [estimate.sheets, selectedRange, drawings, selectedDrawingObject]);
+
+  // ── Chat sessions ──────────────────────────────────────────────────────
+  const refreshSessions = useCallback(() => {
+    api.listChatSessions(estimate.id).then(setSessions).catch(() => {});
+  }, [estimate.id]);
+
+  /** "Chat mới" — phiên sạch tinh: thread/proposals/resume đều rỗng. */
+  async function startNewChat() {
+    if (streamingRef.current) {
+      toast.error("Đợi agent xong", "Agent đang chạy — chờ hoàn tất rồi tạo chat mới.");
+      return;
+    }
+    try {
+      const meta = await api.createChatSession(estimate.id);
+      setSessionId(meta.id);
+      sessionIdRef.current = meta.id;
+      setThread([]);
+      setProposals([]);
+      setResumeSummary(null);
+      setLiveSteps([]);
+      setLiveText("");
+      setLiveThinking("");
+      setSessions((prev) => [meta, ...prev]);
+      setShowHistory(false);
+    } catch {
+      toast.error("Không tạo được chat mới", "Kiểm tra kết nối rồi thử lại.");
+    }
+  }
+
+  /** Mở lại một phiên cũ làm thread hiện hành. */
+  async function switchSession(sid: string) {
+    if (streamingRef.current) {
+      toast.error("Đợi agent xong", "Agent đang chạy — chờ hoàn tất rồi chuyển phiên.");
+      return;
+    }
+    if (sid === sessionIdRef.current) {
+      setShowHistory(false);
+      return;
+    }
+    try {
+      const msgs = await api.getChatSession(estimate.id, sid);
+      setSessionId(sid);
+      sessionIdRef.current = sid;
+      restoreSessionMessages(msgs, true);
+      setShowHistory(false);
+    } catch {
+      toast.error("Không mở được phiên chat", "Phiên có thể đã bị xoá.");
+      refreshSessions();
+    }
+  }
+
+  async function deleteSession(sid: string) {
+    if (streamingRef.current) {
+      toast.error("Đợi agent xong", "Agent đang chạy — chờ hoàn tất rồi xoá phiên.");
+      return;
+    }
+    if (!window.confirm("Xoá phiên chat này? Nội dung hội thoại sẽ mất vĩnh viễn.")) return;
+    try {
+      await api.deleteChatSession(estimate.id, sid);
+      const rest = sessions.filter((s) => s.id !== sid);
+      setSessions(rest);
+      if (sid === sessionIdRef.current) {
+        // Đang đứng trong phiên vừa xoá → sang phiên mới nhất còn lại hoặc tạo mới
+        if (rest.length > 0) {
+          const msgs = await api.getChatSession(estimate.id, rest[0].id);
+          setSessionId(rest[0].id);
+          sessionIdRef.current = rest[0].id;
+          restoreSessionMessages(msgs, true);
+        } else {
+          const meta = await api.createChatSession(estimate.id);
+          setSessions([meta]);
+          setSessionId(meta.id);
+          sessionIdRef.current = meta.id;
+          restoreSessionMessages([], false);
+        }
+      }
+    } catch {
+      toast.error("Xoá thất bại", "Kiểm tra kết nối rồi thử lại.");
+    }
+  }
 
   function toggleEditPermission() {
     const next = !editPermission;
@@ -987,7 +1104,8 @@ export function AgentConsole({
           activeTool: drawingViewport.activeTool,
           layer: drawingViewport.layer,
           objectType: drawingViewport.selectedObjectType,
-        } : undefined
+        } : undefined,
+        sessionIdRef.current ?? undefined
       );
     } finally {
       streamingRef.current = false;
@@ -1253,11 +1371,26 @@ export function AgentConsole({
         <div className="min-w-0 flex-1">
           <h2 className="text-[13px] font-semibold text-zinc-200">QS Agent</h2>
         </div>
-        {/* History (patch timeline + rollback) */}
+        {/* Chat mới — phiên sạch tinh, không mang gì từ phiên trước */}
         <button
           type="button"
-          onClick={() => setShowHistory((v) => !v)}
-          title="Lịch sử thay đổi"
+          onClick={() => void startNewChat()}
+          disabled={streaming}
+          title="Chat mới"
+          className="rounded-lg p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+        {/* History (phiên chat + patch timeline) */}
+        <button
+          type="button"
+          onClick={() => {
+            setShowHistory((v) => {
+              if (!v) refreshSessions();
+              return !v;
+            });
+          }}
+          title="Lịch sử (phiên chat + thay đổi)"
           className={cn(
             "rounded-lg p-1 transition-colors hover:bg-zinc-800",
             showHistory ? "bg-zinc-800 text-zinc-200" : "text-zinc-500 hover:text-zinc-200"
@@ -1315,12 +1448,80 @@ export function AgentConsole({
       {/* Single surface: chat (history slides in via header toggle) */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {showHistory ? (
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <HistoryTimeline
-              history={estimate.patchHistory ?? []}
-              onRollback={handleRollback}
-              rollbackLoadingId={rollbackLoadingId}
-            />
+          <div className="flex min-h-0 flex-1 flex-col">
+            {/* Tabs: Phiên chat | Thay đổi */}
+            <div className="flex items-center gap-1 border-b border-zinc-800 px-3 py-2">
+              {(
+                [
+                  ["sessions", "Phiên chat"],
+                  ["changes", "Thay đổi"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setHistoryTab(key)}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
+                    historyTab === key
+                      ? "bg-zinc-800 text-zinc-100"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {historyTab === "changes" ? (
+                <HistoryTimeline
+                  history={estimate.patchHistory ?? []}
+                  onRollback={handleRollback}
+                  rollbackLoadingId={rollbackLoadingId}
+                />
+              ) : (
+                <div className="space-y-1 p-2">
+                  {sessions.length === 0 && (
+                    <p className="px-2 py-3 text-center text-[12px] text-zinc-600">
+                      Chưa có phiên chat nào.
+                    </p>
+                  )}
+                  {sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className={cn(
+                        "group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors",
+                        s.id === sessionId
+                          ? "border-accent-500/40 bg-accent-500/10"
+                          : "border-zinc-800/60 bg-zinc-900/40 hover:border-zinc-700"
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void switchSession(s.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="truncate text-[12px] font-medium text-zinc-200">
+                          {s.title}
+                        </p>
+                        <p className="text-[10px] text-zinc-500">
+                          {new Date(s.updatedAt).toLocaleString()} · {s.messageCount} tin nhắn
+                          {s.id === sessionId && " · đang mở"}
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteSession(s.id)}
+                        title="Xoá phiên"
+                        className="shrink-0 rounded-md p-1 text-zinc-600 opacity-0 transition-all hover:bg-rose-500/10 hover:text-rose-300 group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <ChatPanel
