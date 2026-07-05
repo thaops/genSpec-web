@@ -1169,12 +1169,15 @@ export function AgentConsole({
         };
         const nextThread = [...thread, userMsg, proposalMsg];
         setThread(nextThread);
-        setProposals((prev) => [
-          ...prev,
-          { msgId, proposal, state: "pending", timestamp: ts },
-        ]);
+        const item: ProposalItem = { msgId, proposal, state: "pending", timestamp: ts };
+        setProposals((prev) => [...prev, item]);
         setShowHistory(false);
         saveConversation(nextThread);
+        // Edit ON = agent-first: apply immediately (with live-drive), the user
+        // reviews AFTER via per-message undo — no confirmation round-trip.
+        if (editPermission && proposal.actions.length > 0) {
+          void applyProposal(item, nextThread);
+        }
         return msgId;
       },
       undoPatch: (patchId: string) => {
