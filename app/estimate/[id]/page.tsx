@@ -83,6 +83,7 @@ export default function EstimateEditorPage() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [renamingSheetId, setRenamingSheetId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [selectedRange, setSelectedRange] = useState<{
@@ -570,6 +571,8 @@ export default function EstimateEditorPage() {
     await ensureQuantitySheet();
     setViewMode("drawing");
     setSplitMode(true);
+    // Thu Explorer để tập trung không gian cho drawing + workbook + chat.
+    setExplorerCollapsed(true);
     const drawingName = drawings.find((d) => d.id === payload.drawingId)?.name;
     const displayText = `⚡ Bóc khối lượng toàn bộ bản vẽ${drawingName ? ` ${drawingName}` : ""}`;
     const label = "Bóc khối lượng (máy tính)";
@@ -859,6 +862,8 @@ export default function EstimateEditorPage() {
           activeDrawingId={activeDrawingId}
           onDrawingSelect={(dId) => { setActiveDrawingId(dId); setViewMode("drawing"); }}
           onDeleteDrawing={handleDeleteDrawing}
+          collapsed={explorerCollapsed}
+          onToggleCollapse={setExplorerCollapsed}
         />
 
         {/* Main Area */}

@@ -5,6 +5,7 @@ import type { Drawing, Estimate, Sheet } from "@/lib/types";
 import {
   FileText, Ruler, Brain,
   Pencil, Trash2, Image, ChevronRight, Plus,
+  PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,9 @@ interface ExplorerPanelProps {
   activeDrawingId?: string;
   onDrawingSelect: (id: string) => void;
   onDeleteDrawing?: (id: string) => void;
+  /** Thu Explorer thành thanh mảnh — bật khi ⚡ bóc để tập trung workbook+drawing+chat. */
+  collapsed?: boolean;
+  onToggleCollapse?: (next: boolean) => void;
 }
 
 type NavIcon = React.ComponentType<{ className?: string }>;
@@ -61,6 +65,8 @@ export function ExplorerPanel({
   activeDrawingId,
   onDrawingSelect,
   onDeleteDrawing,
+  collapsed = false,
+  onToggleCollapse,
 }: ExplorerPanelProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
@@ -91,19 +97,64 @@ export function ExplorerPanel({
     setRenameText("");
   }
 
+  // Thu gọn thành thanh mảnh: chỉ icon nav + nút mở lại — nhường chỗ cho
+  // workbook/drawing/chat khi đang bóc.
+  if (collapsed) {
+    return (
+      <div className="flex w-9 shrink-0 flex-col items-center gap-1 border-r border-zinc-800 bg-zinc-900/30 py-2 min-h-0">
+        <button
+          onClick={() => onToggleCollapse?.(false)}
+          className="flex h-7 w-7 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+          title="Mở Explorer"
+          aria-label="Mở Explorer"
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+        </button>
+        <div className="my-1 h-px w-5 bg-zinc-800" />
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => { onViewModeChange(item.id); onToggleCollapse?.(false); }}
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded transition-colors",
+              viewMode === item.id
+                ? "bg-accent-500/10 text-accent-400"
+                : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200",
+            )}
+            title={item.label}
+          >
+            <item.Icon className="h-3.5 w-3.5" />
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-60 shrink-0 flex-col border-r border-zinc-800 bg-zinc-900/30 min-h-0">
       {/* Header — workspace name, one truncated line */}
-      <div className="border-b border-zinc-800/70 px-3 pb-2 pt-2.5">
-        <div className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">
-          Explorer
+      <div className="flex items-start justify-between border-b border-zinc-800/70 px-3 pb-2 pt-2.5">
+        <div className="min-w-0">
+          <div className="text-[10px] font-medium uppercase tracking-widest text-zinc-600">
+            Explorer
+          </div>
+          <div
+            className="mt-0.5 truncate text-[13px] font-semibold text-zinc-100"
+            title={estimate.name}
+          >
+            {estimate.name}
+          </div>
         </div>
-        <div
-          className="mt-0.5 truncate text-[13px] font-semibold text-zinc-100"
-          title={estimate.name}
-        >
-          {estimate.name}
-        </div>
+        {onToggleCollapse && (
+          <button
+            onClick={() => onToggleCollapse(true)}
+            className="ml-1 mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+            title="Thu gọn Explorer"
+            aria-label="Thu gọn Explorer"
+          >
+            <PanelLeftClose className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Nav sections */}
