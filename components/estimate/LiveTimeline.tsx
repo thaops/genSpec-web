@@ -13,6 +13,8 @@ import {
 export interface TimelineStep {
   text: string;
   at: string; // HH:MM:SS
+  /** t=0 "Đang kết nối agent…" filler — dropped once real content streams. */
+  placeholder?: boolean;
 }
 
 function stepIcon(text: string): React.ReactNode {

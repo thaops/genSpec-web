@@ -846,7 +846,7 @@ export function AgentConsole({
     const nextThread = [...thread, userMsg];
     setThread(nextThread);
     // Instant feedback at t=0 — replaced by the first real backend step
-    setLiveSteps([{ text: "Đang kết nối agent…", at: clockNow() }]);
+    setLiveSteps([{ text: "Đang kết nối agent…", at: clockNow(), placeholder: true }]);
     setLiveText("");
     setLiveThinking("");
     thinkingRef.current = "";
@@ -885,6 +885,8 @@ export function AgentConsole({
           onThinking: (t: string) => {
             thinkingRef.current += t;
             setLiveThinking((prev) => prev + t);
+            // First thought = agent is alive → drop the "Đang kết nối" placeholder
+            setLiveSteps((prev) => prev.filter((s) => !s.placeholder));
           },
           onStep: (s) => {
             setLiveSteps((prev) => [
@@ -1839,15 +1841,17 @@ function ChatPanel({
               <SparkleIcon className="h-4 w-4" />
             </span>
             <div className="max-w-[88%] rounded-2xl border border-zinc-800/60 bg-zinc-900/60 px-3.5 py-3 text-sm leading-relaxed text-zinc-200">
-              {/* Live reasoning (Gemini thought summaries) — dim block above the answer */}
+              {/* Live reasoning (Gemini thought summaries) — shown prominently
+                  the instant the first thought streams, so the user reads the
+                  agent's train of thought in real time (no "connecting" wait). */}
               {streaming && liveThinking && (
-                <details className="mb-2 rounded-lg bg-zinc-900/60 px-2.5 py-1.5" open={!typedTail}>
-                  <summary className="flex cursor-pointer items-center gap-1.5 text-[10px] font-medium text-zinc-500 select-none">
-                    <span className="h-1 w-1 animate-pulse rounded-full bg-accent-400" />
-                    Đang suy nghĩ…
+                <details className="mb-2 rounded-lg border border-accent-500/20 bg-accent-500/5 px-2.5 py-1.5" open={!typedTail}>
+                  <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-accent-300 select-none">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-400" />
+                    Suy nghĩ của AI
                   </summary>
-                  <p className="mt-1 whitespace-pre-wrap text-[11px] italic leading-relaxed text-zinc-500">
-                    {liveThinking.length > 400 ? "…" + liveThinking.slice(-400) : liveThinking}
+                  <p className="mt-1 whitespace-pre-wrap text-[11.5px] italic leading-relaxed text-zinc-400">
+                    {liveThinking.length > 600 ? "…" + liveThinking.slice(-600) : liveThinking}
                   </p>
                 </details>
               )}
