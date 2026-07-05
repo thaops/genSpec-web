@@ -5,6 +5,7 @@ import type { Drawing } from "@/lib/types";
 import { api, ApiError } from "@/lib/api";
 import { Spinner } from "@/components/ui/Button";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
+import { useToast } from "@/components/ui/Toast";
 import { FolderOpen } from "lucide-react";
 
 const ACCEPTED = ".pdf,.dxf,.dwg,.jpg,.jpeg,.png";
@@ -27,6 +28,7 @@ interface DrawingUploadProps {
 }
 
 export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
+  const toast       = useToast();
   const inputRef    = useRef<HTMLInputElement>(null);
   // Live connections/timers — cleaned up on unmount so a mid-parse unmount
   // doesn't leak the SSE stream, the poll interval, or setState calls.
@@ -179,16 +181,21 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
     }, 800);
   }
 
+  function handleFiles(files: File[]) {
+    if (files.length === 0) return;
+    if (files.length > 1) toast.info(`Đang xử lý ${files.length} bản vẽ`);
+    // Mỗi file 1 job độc lập trong JobCenter (progress inline chỉ hiện file cuối).
+    files.forEach((f) => { void handleFile(f); });
+  }
+
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    handleFiles(Array.from(e.dataTransfer.files));
   }
 
   function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    handleFiles(Array.from(e.target.files ?? []));
     e.target.value = "";
   }
 
@@ -201,7 +208,7 @@ export function DrawingUpload({ estimateId, onUploaded }: DrawingUploadProps) {
       onDrop={onDrop}
       onClick={() => !uploading && inputRef.current?.click()}
     >
-      <input ref={inputRef} type="file" accept={ACCEPTED} className="hidden" onChange={onInputChange} />
+      <input ref={inputRef} type="file" accept={ACCEPTED} multiple className="hidden" onChange={onInputChange} />
 
       {uploading ? (
         <div className="flex flex-col items-center gap-3 w-full px-6">

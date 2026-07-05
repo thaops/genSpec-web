@@ -1,13 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Drawing, Estimate, Sheet } from "@/lib/types";
 import {
   FileText, Ruler, Brain,
-  Pencil, Trash2, Image, ChevronRight, Plus,
+  Pencil, Trash2, Image, ChevronRight, ChevronDown, Plus, Check,
   PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { api, ApiError } from "@/lib/api";
+import { addJob, updateJob } from "@/components/ui/JobCenter";
+import { useToast } from "@/components/ui/Toast";
+
+const ACCEPTED_DRAWINGS = ".pdf,.dxf,.dwg,.jpg,.jpeg,.png";
+
+// Bộ môn bản vẽ — mirror của genspec-api/src/drawing/discipline.ts
+const DISCIPLINES: { code: string; label: string }[] = [
+  { code: "KT", label: "Kiến trúc" },
+  { code: "KC", label: "Kết cấu" },
+  { code: "DIEN", label: "Điện" },
+  { code: "NUOC", label: "Nước" },
+  { code: "KHAC", label: "Khác" },
+];
+const DISCIPLINE_LABEL: Record<string, string> = Object.fromEntries(
+  DISCIPLINES.map((d) => [d.code, d.label])
+);
+function normDiscipline(d?: string): string {
+  return d && DISCIPLINE_LABEL[d] ? d : "KHAC";
+}
 
 export type WorkspaceView = "workbook" | "insights" | "drawing" | "specs" | "report" | "history";
 
@@ -24,6 +44,8 @@ interface ExplorerPanelProps {
   activeDrawingId?: string;
   onDrawingSelect: (id: string) => void;
   onDeleteDrawing?: (id: string) => void;
+  /** Đồng bộ danh sách drawings lên page (append khi upload, đổi bộ môn). */
+  onDrawingsChange?: (drawings: Drawing[]) => void;
   /** Thu Explorer thành thanh mảnh — bật khi ⚡ bóc để tập trung workbook+drawing+chat. */
   collapsed?: boolean;
   onToggleCollapse?: (next: boolean) => void;
@@ -65,9 +87,12 @@ export function ExplorerPanel({
   activeDrawingId,
   onDrawingSelect,
   onDeleteDrawing,
+  onDrawingsChange,
   collapsed = false,
   onToggleCollapse,
 }: ExplorerPanelProps) {
+  const toast = useToast();
+  const drawingInputRef = useRef<HTMLInputElement>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [openSections, setOpenSections] = useState<Set<WorkspaceView>>(

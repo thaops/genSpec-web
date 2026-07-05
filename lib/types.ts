@@ -608,6 +608,7 @@ export interface Drawing {
   estimateId: string;
   name: string;
   type: DrawingFileType;
+  discipline?: string; // 'KT' | 'KC' | 'DIEN' | 'NUOC' | 'KHAC'
   url: string;
   convertedUrl?: string;
   thumbnail?: string;

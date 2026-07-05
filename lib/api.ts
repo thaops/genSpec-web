@@ -451,6 +451,22 @@ export const api = {
     return res.json() as Promise<Drawing>;
   },
 
+  // Upload nhiều bản vẽ — loop từng file (mỗi file 1 job độc lập, an toàn hơn batch).
+  uploadDrawings: async (estimateId: string, files: File[]): Promise<Drawing[]> => {
+    const out: Drawing[] = [];
+    for (const file of files) {
+      out.push(await api.uploadDrawing(estimateId, file));
+    }
+    return out;
+  },
+
+  // User chỉnh tay bộ môn của bản vẽ.
+  setDrawingDiscipline: (estimateId: string, drawingId: string, discipline: string) =>
+    request<Drawing>(
+      `/estimates/${estimateId}/drawings/${drawingId}/discipline`,
+      { method: "PATCH", body: { discipline } }
+    ),
+
   // Unified vector scene for the DrawingCanvas. 404 → ApiError (caller
   // falls back to the legacy DxfViewer / DwgCanvasViewer).
   getDrawingScene: (estimateId: string, drawingId: string) =>
