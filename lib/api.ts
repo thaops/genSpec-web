@@ -631,6 +631,8 @@ export interface TakeoffEngineBody {
   rejectedObjectIds?: string[];
   /** Vùng bóc (world coords): BE chỉ đo đối tượng có tâm bbox trong vùng */
   region?: { x: number; y: number; w: number; h: number };
+  /** Bộ môn bản vẽ — tuỳ chọn; BE tự đọc từ drawing doc là chuẩn. */
+  discipline?: string;
 }
 
 export function runTakeoffEngine(

@@ -122,6 +122,56 @@ export function ExplorerPanel({
     setRenameText("");
   }
 
+  // Upload nhiều bản vẽ từ Explorer — mỗi file 1 job, append vào list khi xong.
+  // Bản vẽ về ở trạng thái pending; DrawingWorkspace tự poll status khi được chọn.
+  async function uploadOne(file: File): Promise<Drawing | null> {
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const job = addJob({
+      id: crypto.randomUUID(),
+      type: ext === "dwg" ? "dwg_convert" : ext === "pdf" ? "pdf_parse" : "dxf_parse",
+      status: "processing",
+      progress: 5,
+      message: `Đang tải ${file.name}`,
+      estimateId: estimate.id,
+    });
+    try {
+      const drawing = await api.uploadDrawing(estimate.id, file);
+      updateJob(job.id, { status: "done", progress: 100, message: `${file.name} đã tải lên` });
+      return drawing;
+    } catch (e) {
+      updateJob(job.id, { status: "failed", message: (e as ApiError).message });
+      toast.error("Upload thất bại", file.name);
+      return null;
+    }
+  }
+
+  async function handleAddDrawings(files: File[]) {
+    if (files.length === 0) return;
+    if (files.length > 1) toast.info(`Đang xử lý ${files.length} bản vẽ`);
+    for (const file of files) {
+      const drawing = await uploadOne(file);
+      if (drawing) onDrawingsChange?.([...drawings, drawing]);
+    }
+  }
+
+  function setDrawingDiscipline(drawingId: string, discipline: string) {
+    // Optimistic — cập nhật local ngay, rollback nếu server lỗi.
+    const prev = drawings;
+    onDrawingsChange?.(drawings.map((d) => (d.id === drawingId ? { ...d, discipline } : d)));
+    api.setDrawingDiscipline(estimate.id, drawingId, discipline).catch(() => {
+      onDrawingsChange?.(prev);
+      toast.error("Không đổi được bộ môn");
+    });
+  }
+
+  // Nhóm drawings theo bộ môn, giữ thứ tự DISCIPLINES, chỉ nhóm có bản vẽ.
+  const drawingGroups = DISCIPLINES
+    .map((d) => ({
+      ...d,
+      items: drawings.filter((dr) => normDiscipline(dr.discipline) === d.code),
+    }))
+    .filter((g) => g.items.length > 0);
+
   // Thu gọn thành thanh mảnh: chỉ icon nav + nút mở lại — nhường chỗ cho
   // workbook/drawing/chat khi đang bóc.
   if (collapsed) {
@@ -157,6 +207,17 @@ export function ExplorerPanel({
 
   return (
     <div className="flex w-60 shrink-0 flex-col border-r border-zinc-800 bg-zinc-900/30 min-h-0">
+      <input
+        ref={drawingInputRef}
+        type="file"
+        accept={ACCEPTED_DRAWINGS}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleAddDrawings(Array.from(e.target.files ?? []));
+          e.target.value = "";
+        }}
+      />
       {/* Header — workspace name, one truncated line */}
       <div className="flex items-start justify-between border-b border-zinc-800/70 px-3 pb-2 pt-2.5">
         <div className="min-w-0">
@@ -286,27 +347,49 @@ export function ExplorerPanel({
 
                   {item.id === "drawing" && (
                     <>
+                      {/* Ghost row — thêm bản vẽ (upload nhiều file) */}
+                      <button
+                        onClick={() => drawingInputRef.current?.click()}
+                        className="flex h-7 w-full items-center gap-1.5 rounded px-2 text-left text-[13px] text-zinc-600 transition-colors hover:bg-zinc-800/40 hover:text-zinc-300"
+                      >
+                        <Plus className="h-3 w-3 shrink-0" />
+                        <span>Thêm bản vẽ</span>
+                      </button>
+
                       {drawings.length === 0 && (
                         <div className="flex h-7 items-center px-2 text-xs text-zinc-600">
                           Chưa có bản vẽ
                         </div>
                       )}
-                      {drawings.map((drawing) => (
-                        <DrawingItem
-                          key={drawing.id}
-                          drawing={drawing}
-                          active={viewMode === "drawing" && activeDrawingId === drawing.id}
-                          onSelect={() => { onDrawingSelect(drawing.id); onViewModeChange("drawing"); }}
-                          onDelete={
-                            onDeleteDrawing
-                              ? () => {
-                                  if (window.confirm(`Xóa bản vẽ '${drawing.name}'? Objects và scene sẽ mất.`)) {
-                                    onDeleteDrawing(drawing.id);
-                                  }
-                                }
-                              : undefined
-                          }
-                        />
+
+                      {drawingGroups.map((group) => (
+                        <div key={group.code} className="mt-1 first:mt-0">
+                          {/* Sub-header bộ môn */}
+                          <div className="flex h-5 items-center gap-1 px-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-600">
+                            <span className="truncate">{group.label}</span>
+                            <span className="font-mono font-normal normal-case text-zinc-700">
+                              {group.items.length}
+                            </span>
+                          </div>
+                          {group.items.map((drawing) => (
+                            <DrawingItem
+                              key={drawing.id}
+                              drawing={drawing}
+                              active={viewMode === "drawing" && activeDrawingId === drawing.id}
+                              onSelect={() => { onDrawingSelect(drawing.id); onViewModeChange("drawing"); }}
+                              onSetDiscipline={(code) => setDrawingDiscipline(drawing.id, code)}
+                              onDelete={
+                                onDeleteDrawing
+                                  ? () => {
+                                      if (window.confirm(`Xóa bản vẽ '${drawing.name}'? Objects và scene sẽ mất.`)) {
+                                        onDeleteDrawing(drawing.id);
+                                      }
+                                    }
+                                  : undefined
+                              }
+                            />
+                          ))}
+                        </div>
                       ))}
                     </>
                   )}
@@ -409,14 +492,27 @@ function DrawingItem({
   drawing,
   active,
   onSelect,
+  onSetDiscipline,
   onDelete,
 }: {
   drawing: Drawing;
   active: boolean;
   onSelect: () => void;
+  onSetDiscipline: (code: string) => void;
   onDelete?: () => void;
 }) {
   const Icon = DRAWING_TYPE_ICON[drawing.type] ?? FileText;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const current = normDiscipline(drawing.discipline);
+
+  // Đóng menu khi click ra ngoài
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menuOpen]);
+
   return (
     <div
       className={cn(rowBase, active ? rowActive : rowIdle)}
@@ -431,8 +527,40 @@ function DrawingItem({
         )}
       />
       <span className="min-w-0 flex-1 truncate">{drawing.name}</span>
+
+      {/* Badge bộ môn + dropdown đổi bộ môn */}
+      <div className="relative shrink-0">
+        <button
+          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+          className="flex items-center gap-0.5 rounded bg-zinc-800/70 px-1 py-px font-mono text-[9px] uppercase text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
+          title={`Bộ môn: ${DISCIPLINE_LABEL[current]}`}
+          aria-label="Đổi bộ môn"
+        >
+          {current}
+          <ChevronDown className="h-2.5 w-2.5" />
+        </button>
+        {menuOpen && (
+          <div
+            className="absolute right-0 z-20 mt-1 w-32 overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 py-0.5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {DISCIPLINES.map((d) => (
+              <button
+                key={d.code}
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onSetDiscipline(d.code); }}
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[12px] text-zinc-300 transition-colors hover:bg-zinc-800"
+              >
+                <span className="w-3 shrink-0">
+                  {d.code === current && <Check className="h-3 w-3 text-accent-400" />}
+                </span>
+                <span className="truncate">{d.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        <span className="font-mono text-[9px] uppercase text-zinc-600">{drawing.type}</span>
         {onDelete && (
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}

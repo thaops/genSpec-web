@@ -116,6 +116,10 @@ interface DrawingWorkspaceProps {
   // When provided, it takes precedence over onFullTakeoff; fallbackPrompt is
   // the legacy LLM prompt the page replays if the engine call fails.
   onEngineTakeoff?: (payload: EngineTakeoffPayload) => void;
+  // "⚡ Bóc toàn bộ dự án": chạy engine tuần tự cho TỪNG bản vẽ (mỗi bản theo
+  // bộ môn của nó), tất cả proposal áp vào cùng sheet Khối lượng. Chỉ hiện khi
+  // có ≥2 bản vẽ ready. Idempotent theo drawingId+rowKey nên gộp không đè.
+  onProjectTakeoff?: () => void;
   // Agent task in-flight (page-level) → disable takeoff triggers
   takeoffBusy?: boolean;
   // Traceability: drawing → BOQ jump requested from the Object Inspector
@@ -138,6 +142,7 @@ export function DrawingWorkspace({
   onObjectsLoaded,
   onFullTakeoff,
   onEngineTakeoff,
+  onProjectTakeoff,
   takeoffBusy = false,
   onJumpToBoq,
   externalFocus,
@@ -692,6 +697,18 @@ export function DrawingWorkspace({
                 />
               )}
             </div>
+            {onProjectTakeoff &&
+              drawings.filter((d) => !d.parseStatus || d.parseStatus === "ready").length >= 2 && (
+                <button
+                  onClick={onProjectTakeoff}
+                  disabled={fullTakeoffRunning || detecting || takeoffBusy}
+                  title="Bóc khối lượng TẤT CẢ bản vẽ trong dự án (mỗi bản theo bộ môn) vào cùng sheet 'Khối lượng'"
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-accent-300 disabled:opacity-50 text-[11px] transition-colors"
+                >
+                  <Zap className="h-3 w-3" />
+                  <span>Bóc toàn bộ dự án</span>
+                </button>
+              )}
             <button
               onClick={() => setReviewOpen((v) => !v)}
               disabled={objects.length === 0}

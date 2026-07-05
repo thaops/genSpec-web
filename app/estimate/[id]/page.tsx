@@ -31,6 +31,7 @@ import { ExplorerPanel } from "@/components/estimate/explorer/ExplorerPanel";
 import type { WorkspaceView } from "@/components/estimate/explorer/ExplorerPanel";
 import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
 import type { DrawingViewportInfo, EngineTakeoffPayload } from "@/components/drawing/DrawingWorkspace";
+import { DEFAULT_TAKEOFF_ASSUMPTIONS, loadTakeoffAssumptions } from "@/components/drawing/TakeoffAssumptions";
 import { SplitView } from "@/components/drawing/SplitView";
 import { AlertTriangle, BarChart3 } from "lucide-react";
 import type { DrawingObjectType } from "@/lib/types";
@@ -594,6 +595,7 @@ export default function EstimateEditorPage() {
         assumptions: payload.assumptions,
         rejectedObjectIds: payload.rejectedObjectIds,
         region: payload.region,
+        discipline: drawings.find((d) => d.id === payload.drawingId)?.discipline,
       });
       const proposalMsgId = copilotRef.current?.injectProposal(proposal, displayText);
       updateJob(job.id, {
@@ -633,6 +635,79 @@ export default function EstimateEditorPage() {
         300
       );
     }
+  }
+
+  // "⚡ Bóc toàn bộ dự án" — chạy engine tuần tự cho TỪNG bản vẽ ready (mỗi bản
+  // theo bộ môn của nó), tất cả proposal áp thẳng vào cùng sheet Khối lượng.
+  // Idempotent theo drawingId+rowKey nên gộp không đè, bóc lại 1 bộ môn chỉ thay
+  // phần của nó. Không cần calibration ở FE — engine tự hiệu chỉnh factor (đọc
+  // calibration đã lưu nếu có, mặc định 0.001 mm rồi tự suy lại nếu bất hợp lý).
+  async function handleProjectTakeoff() {
+    if (!estimate) return;
+    const ready = drawings.filter((d) => !d.parseStatus || d.parseStatus === "ready");
+    if (ready.length === 0) return;
+    await ensureQuantitySheet();
+    setViewMode("drawing");
+    setSplitMode(true);
+    setExplorerCollapsed(true);
+    const label = "Bóc toàn bộ dự án";
+    const order = ["KT", "KC", "DIEN", "NUOC", "KHAC"];
+    const discLabel: Record<string, string> = { KT: "KT", KC: "KC", DIEN: "Điện", NUOC: "Nước", KHAC: "Khác" };
+    const sorted = [...ready].sort(
+      (a, b) => order.indexOf(a.discipline ?? "KHAC") - order.indexOf(b.discipline ?? "KHAC")
+    );
+    const readCal = (id: string): number => {
+      try {
+        const raw = localStorage.getItem(`genspec_drawing_cal_${id}`);
+        const f = raw ? (JSON.parse(raw) as { unitsPerDrawingUnit?: number }).unitsPerDrawingUnit : undefined;
+        return typeof f === "number" && f > 0 ? f : 0.001;
+      } catch {
+        return 0.001;
+      }
+    };
+    const start = Date.now();
+    const job = addJob({
+      id: `takeoff-project-${Date.now()}`,
+      type: "agent_task",
+      status: "processing",
+      progress: 5,
+      message: label,
+    });
+    setAgentTask({ label, step: "Bắt đầu bóc toàn bộ dự án…", status: "running" });
+    let doneCount = 0;
+    let totalActions = 0;
+    const errors: string[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const dr = sorted[i];
+      const dl = discLabel[dr.discipline ?? "KHAC"] ?? dr.discipline;
+      setAgentTask({ label, step: `Đang bóc ${dl} — ${dr.name}… (${i + 1}/${sorted.length})`, status: "running" });
+      updateJob(job.id, { progress: Math.round(((i + 0.5) / sorted.length) * 100), message: `${label}: ${dl}` });
+      try {
+        const proposal = await runTakeoffEngine(estimate.id, {
+          drawingId: dr.id,
+          unitsPerDrawingUnit: readCal(dr.id),
+          assumptions: loadTakeoffAssumptions(dr.id) ?? DEFAULT_TAKEOFF_ASSUMPTIONS,
+          discipline: dr.discipline,
+        });
+        const applied = await apply(proposal.actions);
+        if (applied) {
+          totalActions += proposal.actions.length;
+          doneCount++;
+        }
+      } catch (err) {
+        errors.push(`${dr.name}: ${(err as ApiError).message}`);
+      }
+    }
+    const summary = `${doneCount}/${sorted.length} bản vẽ · ${totalActions} thay đổi${errors.length ? ` · ${errors.length} lỗi` : ""}`;
+    updateJob(job.id, {
+      status: errors.length && doneCount === 0 ? "failed" : "done",
+      progress: 100,
+      message: `Hoàn tất — ${summary}`,
+      durationMs: Date.now() - start,
+    });
+    setAgentTask({ label, step: `Hoàn tất — ${summary}`, status: errors.length && doneCount === 0 ? "error" : "done" });
+    if (errors.length) toast.error("Một số bản vẽ bóc lỗi", errors.join("; "));
+    else toast.success("Đã bóc toàn bộ dự án", summary);
   }
 
   function handleObjectsLoaded(objects: DrawingObject[]) {
@@ -801,6 +876,7 @@ export default function EstimateEditorPage() {
       onObjectsLoaded={handleObjectsLoaded}
       onFullTakeoff={handleFullTakeoff}
       onEngineTakeoff={handleEngineTakeoff}
+      onProjectTakeoff={handleProjectTakeoff}
       takeoffBusy={agentTask?.status === "running"}
       onJumpToBoq={handleJumpToBoq}
       externalFocus={drawingFocus}
@@ -862,6 +938,7 @@ export default function EstimateEditorPage() {
           activeDrawingId={activeDrawingId}
           onDrawingSelect={(dId) => { setActiveDrawingId(dId); setViewMode("drawing"); }}
           onDeleteDrawing={handleDeleteDrawing}
+          onDrawingsChange={setDrawings}
           collapsed={explorerCollapsed}
           onToggleCollapse={setExplorerCollapsed}
         />
