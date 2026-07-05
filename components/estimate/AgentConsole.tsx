@@ -663,10 +663,22 @@ export function AgentConsole({
 
     // Confirm-intent shortcut: "oke"/"làm đi"/"áp dụng"… + a pending proposal
     // → apply it directly, skip the LLM round-trip entirely.
+    // ONLY when that proposal is the LATEST agent turn — if the model has
+    // since said something newer (e.g. suggested codes in prose), "oke" refers
+    // to THAT suggestion and must go to the LLM so it can emit real actions.
     if (message && sentFiles.length === 0 && isConfirmIntent(message)) {
-      const pending = [...proposals]
+      const lastAgentMsg = [...thread]
         .reverse()
-        .find((p) => p.state === "pending" && p.proposal.actions.length > 0);
+        .find((m) => m.kind === "assistant" || m.kind === "proposal");
+      const pending =
+        lastAgentMsg?.kind === "proposal"
+          ? proposals.find(
+              (p) =>
+                p.msgId === lastAgentMsg.id &&
+                p.state === "pending" &&
+                p.proposal.actions.length > 0
+            )
+          : undefined;
       if (pending) {
         setShowHistory(false);
         const ts = new Date().toISOString();
@@ -688,7 +700,10 @@ export function AgentConsole({
         await applyProposal(pending, confirmThread);
         return;
       }
-      // Confirmation with nothing pending → fall through to the normal LLM path
+      // Confirmation with nothing pending (or the model spoke after the
+      // proposal) → LLM path, but as an EDIT: "oke làm đi" is an order to act
+      // on the model's own last suggestion, never a read question.
+      opts = { ...opts, forceEdit: true };
     }
 
     // Cancel any running typewriter animation
