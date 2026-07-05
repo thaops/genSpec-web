@@ -713,7 +713,8 @@ export function AgentConsole({
 
     const nextThread = [...thread, userMsg];
     setThread(nextThread);
-    setLiveSteps([]);
+    // Instant feedback at t=0 — replaced by the first real backend step
+    setLiveSteps([{ text: "Đang kết nối agent…", at: clockNow() }]);
     setLiveText("");
     setLiveThinking("");
     thinkingRef.current = "";
@@ -1443,6 +1444,26 @@ function ChatPanel({
   const [files, setFiles] = useState<File[]>([]);
   const selectionLabel = selectedRange ? rangeToA1(selectedRange) : null;
 
+  // Live elapsed ticker on the CURRENT step — guarantees visible movement
+  // every second even during long backend waits (research, JSON fallback…),
+  // so the agent never looks frozen before the first token arrives.
+  const lastStepText = liveSteps[liveSteps.length - 1]?.text ?? "";
+  const stepStartRef = useRef(Date.now());
+  const prevStepTextRef = useRef(lastStepText);
+  if (prevStepTextRef.current !== lastStepText) {
+    prevStepTextRef.current = lastStepText;
+    stepStartRef.current = Date.now();
+  }
+  const [stepElapsed, setStepElapsed] = useState(0);
+  useEffect(() => {
+    if (!streaming) return;
+    const t = setInterval(
+      () => setStepElapsed(Math.floor((Date.now() - stepStartRef.current) / 1000)),
+      1000
+    );
+    return () => clearInterval(t);
+  }, [streaming, lastStepText]);
+
   function runTask(prompt: string) {
     onClearTask();
     onSend(prompt, []);
@@ -1617,15 +1638,21 @@ function ChatPanel({
               {/* Step chips — only while actively streaming, before first token */}
               {streaming && !typedTail && liveSteps.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1">
-                  {liveSteps.slice(-2).map((s, i) => (
-                    <span
-                      key={i}
-                      className="flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400"
-                    >
-                      <span className="h-1 w-1 animate-pulse rounded-full bg-accent-400" />
-                      {s.text}
-                    </span>
-                  ))}
+                  {liveSteps.slice(-2).map((s, i, arr) => {
+                    const isCurrent = i === arr.length - 1;
+                    return (
+                      <span
+                        key={i}
+                        className="flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400"
+                      >
+                        <span className="h-1 w-1 animate-pulse rounded-full bg-accent-400" />
+                        {s.text}
+                        {isCurrent && stepElapsed >= 2 && (
+                          <span className="tabular-nums text-zinc-600">· {stepElapsed}s</span>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               {/* Streaming text — grows in-place via typewriter, persists until animation done */}
