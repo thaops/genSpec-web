@@ -318,9 +318,11 @@ export function CopilotComposer({
               </select>
             </label>
           )}
-          <span className="hidden text-[11px] text-zinc-600 sm:inline">
-            {t("copilot.enterToSend")}
-          </span>
+          {!onProvinceChange && (
+            <span className="hidden text-[11px] text-zinc-600 sm:inline">
+              {t("copilot.enterToSend")}
+            </span>
+          )}
           <input
             ref={fileRef}
             type="file"
