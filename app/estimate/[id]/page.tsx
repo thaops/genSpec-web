@@ -549,22 +549,51 @@ export default function EstimateEditorPage() {
     );
   }
 
-  // Ensure the "Khối lượng" sheet exists and make it active (shared by both
-  // ⚡ takeoff paths).
-  async function ensureQuantitySheet() {
-    if (!estimate) return;
-    const existing = (estimate.sheets ?? []).find((s) => s.name === "Khối lượng");
-    if (existing) {
-      setActiveSheetId(existing.id);
-    } else {
-      const newSheet: Sheet = {
-        id: `sheet-${Date.now()}`,
-        name: "Khối lượng",
-        data: { cellData: {}, rowCount: 100, columnCount: 20 },
-      };
-      await apply([{ type: "set_sheets", sheets: [...(estimate.sheets ?? []), newSheet] }]);
-      setActiveSheetId(newSheet.id);
+  // 3 sheet BOQ theo nhóm công tác QS (đồng bộ BOQ_SHEETS ở backend engine).
+  // Tên phải khớp chính xác để engine route dòng đúng sheet.
+  const BOQ_SHEET_NAMES = ["1. Kết cấu & bao che", "2. Hoàn thiện bề mặt", "3. Cửa & phụ kiện"];
+
+  // Ensure the 3 BOQ sheets exist and make the first active (shared by both
+  // ⚡ takeoff paths). Trả về id các sheet theo thứ tự để tour animation dùng.
+  async function ensureQuantitySheet(): Promise<string[]> {
+    if (!estimate) return [];
+    const current = estimate.sheets ?? [];
+    const ids: string[] = [];
+    const toAdd: Sheet[] = [];
+    BOQ_SHEET_NAMES.forEach((name, i) => {
+      const existing = current.find((s) => s.name === name);
+      if (existing) {
+        ids.push(existing.id);
+      } else {
+        const s: Sheet = {
+          id: `sheet-${Date.now()}-${i}`,
+          name,
+          data: { cellData: {}, rowCount: 100, columnCount: 20 },
+        };
+        toAdd.push(s);
+        ids.push(s.id);
+      }
+    });
+    if (toAdd.length > 0) {
+      await apply([{ type: "set_sheets", sheets: [...current, ...toAdd] }]);
     }
+    setActiveSheetId(ids[0]);
+    return ids;
+  }
+
+  // Tour animation: lần lượt chuyển + zoom qua từng sheet để tạo cảm giác agent
+  // "lật trang" thực hiện. Mỗi sheet dừng ~900ms, focus A1 + zoom nhẹ.
+  function animateSheetTour(sheetIds: string[]) {
+    sheetIds.forEach((sid, i) => {
+      setTimeout(() => {
+        setViewMode("workbook");
+        setActiveSheetId(sid);
+        workbookDriverRef.current?.zoomTo?.(sid, 1.1);
+        focusWorkbookCell(sid, 1);
+        // Trả zoom về 100% khi rời sheet
+        setTimeout(() => workbookDriverRef.current?.zoomTo?.(sid, 1), 800);
+      }, i * 900);
+    });
   }
 
   // "⚡ Bóc toàn bộ" — LEGACY LLM path. Kept intact as the fallback when the
@@ -593,7 +622,7 @@ export default function EstimateEditorPage() {
   // the chat as a pending ProposalCard; the user applies it (or "oke làm đi").
   async function handleEngineTakeoff(payload: EngineTakeoffPayload) {
     if (!estimate) return;
-    await ensureQuantitySheet();
+    const sheetIds = await ensureQuantitySheet();
     setViewMode("drawing");
     setSplitMode(true);
     // Thu Explorer để tập trung không gian cho drawing + workbook + chat.
@@ -622,6 +651,8 @@ export default function EstimateEditorPage() {
         discipline: drawings.find((d) => d.id === payload.drawingId)?.discipline,
       });
       const proposalMsgId = copilotRef.current?.injectProposal(proposal, displayText);
+      // Lật qua 3 sheet để user thấy agent "chuyển sheet" thực hiện.
+      if (sheetIds.length > 0) animateSheetTour(sheetIds);
       updateJob(job.id, {
         status: "done",
         progress: 100,

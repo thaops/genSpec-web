@@ -795,7 +795,7 @@ export function DrawingWorkspace({
                   title={allReady
                     ? "Bóc khối lượng TẤT CẢ bản vẽ trong dự án (mỗi bản theo bộ môn) vào cùng sheet 'Khối lượng'"
                     : `Đợi ${pending} bản vẽ xử lý xong`}
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-accent-300 disabled:opacity-50 disabled:cursor-not-allowed text-[11px] transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-accent-300 [html.light_&]:text-accent-700 disabled:opacity-50 disabled:cursor-not-allowed text-[11px] transition-colors"
                 >
                   <Zap className="h-3 w-3" />
                   <span>{allReady ? "Bóc toàn bộ dự án" : `Bóc dự án (đợi ${pending})`}</span>

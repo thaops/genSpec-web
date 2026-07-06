@@ -19,6 +19,8 @@ export interface WorkbookDriver {
   focusCell: (sheetId: string, row: number, col: number) => boolean;
   writeCell: (sheetId: string, row: number, col: number, value: string | number) => void;
   flashCell: (sheetId: string, row: number, col: number) => void;
+  /** Đổi mức zoom của sheet (1 = 100%). Best-effort — no-op nếu Univer chưa sẵn. */
+  zoomTo?: (sheetId: string, ratio: number) => void;
   /**
    * Types the value into the cell in meaningful milestones (Copilot-style).
    * Partial formula milestones are written as raw text ({ v }) so Univer never
@@ -484,6 +486,13 @@ export default function WorkbookEditor({
           setTimeout(() => {
             try { range?.setBackgroundColor?.(""); } catch (_) {}
           }, 1200);
+        } catch (_) {}
+      },
+      zoomTo: (sheetId, ratio) => {
+        try {
+          const sheet = getSheet(sheetId);
+          // Univer facade FWorksheet: zoom(ratio) hoặc setZoomRatio tuỳ bản.
+          (sheet as any)?.zoom?.(ratio) ?? (sheet as any)?.setZoomRatio?.(ratio);
         } catch (_) {}
       },
     };

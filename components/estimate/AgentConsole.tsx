@@ -1928,16 +1928,16 @@ function ChatPanel({
         {(selectionLabel || activeDrawingId) && (
           <div className="mb-2 flex items-center gap-1.5 flex-wrap">
             {selectionLabel && (
-              <span className="flex items-center gap-1 rounded-md border border-accent-500/30 bg-accent-500/10 px-2 py-0.5 text-[11px] text-accent-300">
+              <span className="flex items-center gap-1 rounded-md border border-accent-500/30 [html.light_&]:border-accent-600/40 bg-accent-500/10 [html.light_&]:bg-accent-500/15 px-2 py-0.5 text-[11px] text-accent-300 [html.light_&]:text-accent-700">
                 <MapPin className="h-3 w-3" />
                 <span className="font-mono font-semibold">{selectionLabel}</span>
-                <span className="text-accent-400/70">đang chọn</span>
+                <span className="text-accent-400/70 [html.light_&]:text-accent-600/80">đang chọn</span>
               </span>
             )}
             {activeDrawingId && (
-              <span className="flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300">
+              <span className="flex items-center gap-1 rounded-md border border-blue-500/30 [html.light_&]:border-blue-600/40 bg-blue-500/10 [html.light_&]:bg-blue-500/15 px-2 py-0.5 text-[11px] text-blue-300 [html.light_&]:text-blue-700">
                 <Ruler className="h-3 w-3" />
-                <span className="text-blue-400/70">Bản vẽ đang mở</span>
+                <span className="text-blue-400/70 [html.light_&]:text-blue-600/80">Bản vẽ đang mở</span>
                 {selectedDrawingObjectType && (
                   <span className="font-semibold ml-1">{selectedDrawingObjectType}</span>
                 )}
