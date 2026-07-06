@@ -178,6 +178,12 @@ export default function WorkbookEditor({
   // Keep themeRef in sync so MutationObserver callback always has correct value
   useEffect(() => { themeRef.current = theme; }, [theme]);
 
+  // Univer cell canvas stays light (gray-50) in both themes → cell text is dark,
+  // so agent highlights must be LIGHT tints. Slightly stronger in dark for parity.
+  function agentFlashColor(): string {
+    return themeRef.current === "dark" ? "#93c5fd" : "#bfdbfe";
+  }
+
   // Re-apply when app theme changes — pass isDark explicitly (don't read classList here)
   useEffect(() => {
     if (!univerAPIRef.current) return;
@@ -296,7 +302,7 @@ export default function WorkbookEditor({
             const univSheet = wb.getSheetBySheetId?.(sheetId);
             if (!univSheet) continue;
             try {
-              univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor("#1e3a8a");
+              univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor(agentFlashColor());
               setTimeout(() => {
                 try { univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor(""); } catch (_) {}
               }, 1500);
@@ -474,7 +480,7 @@ export default function WorkbookEditor({
       flashCell: (sheetId, row, col) => {
         try {
           const range = getSheet(sheetId)?.getRange?.(row, col, 1, 1);
-          range?.setBackgroundColor?.("#1e3a8a");
+          range?.setBackgroundColor?.(agentFlashColor());
           setTimeout(() => {
             try { range?.setBackgroundColor?.(""); } catch (_) {}
           }, 1200);

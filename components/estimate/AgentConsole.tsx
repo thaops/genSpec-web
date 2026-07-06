@@ -880,6 +880,8 @@ export function AgentConsole({
           editPermission: opts?.forceEdit ? true : editPermission,
           onToken: (t: string) => {
             hasTokensRef.current = true;
+            // Any real output means the agent is alive → drop the placeholder
+            setLiveSteps((prev) => prev.filter((s) => !s.placeholder));
             enqueueLiveText(t);
           },
           onThinking: (t: string) => {
@@ -889,8 +891,9 @@ export function AgentConsole({
             setLiveSteps((prev) => prev.filter((s) => !s.placeholder));
           },
           onStep: (s) => {
+            // First real step supersedes the "Đang kết nối" placeholder
             setLiveSteps((prev) => [
-              ...prev,
+              ...prev.filter((st) => !st.placeholder),
               { text: s.text, at: clockNow() },
             ]);
             const jobId = taskJobIdRef.current;
@@ -1819,15 +1822,15 @@ function ChatPanel({
         {/* Agent is operating the grid — persistent indicator until drive ends */}
         {driveStatus && (
           <div className="flex animate-slide-up justify-start">
-            <div className="flex max-w-[88%] items-center gap-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 px-3.5 py-2 text-xs text-blue-200">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-              <Bot className="h-3.5 w-3.5 shrink-0" />
+            <div className="flex max-w-[88%] items-center gap-2 rounded-2xl border border-accent-500/30 bg-accent-500/10 px-3.5 py-2 text-xs text-zinc-200">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-400" />
+              <Bot className="h-3.5 w-3.5 shrink-0 text-accent-400" />
               {driveStatus}
               <button
                 type="button"
                 onClick={onStopDrive}
                 title="Dừng (Esc)"
-                className="ml-1 flex shrink-0 items-center gap-1 rounded-full border border-blue-400/40 bg-blue-500/20 px-2 py-0.5 text-[11px] font-medium text-blue-100 transition-colors hover:bg-blue-500/30"
+                className="ml-1 flex shrink-0 items-center gap-1 rounded-full border border-accent-400/40 bg-accent-500/20 px-2 py-0.5 text-[11px] font-medium text-zinc-100 transition-colors hover:bg-accent-500/30"
               >
                 <Pause className="h-3 w-3" />
                 Dừng
