@@ -16,6 +16,7 @@ import type {
   ApiErrorBody,
   Drawing,
   DrawingObject,
+  LayerRule,
   DrawingScene,
   RevisionDiff,
   AppNotification,
@@ -486,6 +487,30 @@ export const api = {
       `/estimates/${estimateId}/drawings/${drawingId}/detect`,
       { method: "POST" }
     ),
+
+  // Tier 3 — LLM resolve residual ambiguous/unknown objects
+  aiResolveObjects: (estimateId: string, drawingId: string) =>
+    request<{ drawingId: string; resolved: number; considered?: number; skipped?: number; objects?: DrawingObject[]; message?: string }>(
+      `/estimates/${estimateId}/drawings/${drawingId}/detect/ai-resolve`,
+      { method: "POST" }
+    ),
+
+  // Tier 4 — user corrects one object's type (durable across re-detect)
+  correctObjectType: (estimateId: string, drawingId: string, stableId: string, type: string) =>
+    request<{ object: DrawingObject; promoted: boolean }>(
+      `/estimates/${estimateId}/drawings/${drawingId}/objects/${stableId}/type`,
+      { method: "PATCH", body: { type } }
+    ),
+
+  // Tier 2 layer overrides (per-project)
+  getLayerRules: (estimateId: string) =>
+    request<LayerRule[]>(`/estimates/${estimateId}/drawings/layer-rules`),
+
+  saveLayerRules: (estimateId: string, rules: LayerRule[]) =>
+    request<LayerRule[]>(`/estimates/${estimateId}/drawings/layer-rules`, {
+      method: "POST",
+      body: { rules },
+    }),
 
   compareDrawings: (
     estimateId: string,

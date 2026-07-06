@@ -11,7 +11,7 @@ const TYPE_LABELS: Record<string, string> = {
   elevator: "Thang máy", axis: "Trục",
   dimension: "Dimension", leader: "Leader", block: "Block",
   polyline: "Polyline", hatch: "Hatch", text: "Text",
-  symbol: "Symbol", viewport: "Viewport", unknown: "Không xác định",
+  symbol: "Symbol", viewport: "Viewport", ignored: "Bỏ qua", unknown: "Không xác định",
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -19,7 +19,8 @@ const TYPE_ICONS: Record<string, string> = {
   door: "🚪", window: "🪟", stair: "📶", roof: "🏠",
   footing: "⚓", pile: "🔩", axis: "╋", dimension: "↔", leader: "↗",
   block: "⬦", polyline: "〰", hatch: "▨", text: "T",
-  symbol: "◈", viewport: "▭", unknown: "❓",
+  opening: "🕳", ramp: "🛝",
+  symbol: "◈", viewport: "▭", ignored: "🚫", unknown: "❓",
 };
 
 // ACI index → readable name + hex color
@@ -104,7 +105,14 @@ interface ObjectInspectorProps {
   takeoffBusy?: boolean;
   // Jump to the takeoff row traced to this object (token/boqRef/type-based lookup upstream)
   onJumpToBoq?: (obj: DrawingObject) => void;
+  // Tier 4 — user corrects this object's type (durable across re-detect)
+  onCorrectType?: (obj: DrawingObject, type: string) => Promise<void>;
 }
+
+const CORRECT_TYPES: string[] = [
+  "beam", "column", "wall", "slab", "stair", "roof", "footing", "pile",
+  "door", "window", "opening", "ramp", "axis", "ignored",
+];
 
 export function ObjectInspector({
   object,
@@ -113,8 +121,10 @@ export function ObjectInspector({
   onGenerateTakeoff,
   takeoffBusy = false,
   onJumpToBoq,
+  onCorrectType,
 }: ObjectInspectorProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("summary");
+  const [correcting, setCorrecting] = useState(false);
 
   if (!object) {
     return (
@@ -194,10 +204,54 @@ export function ObjectInspector({
                 <div className="flex items-center gap-2">
                   <span className="text-base">{icon}</span>
                   <div>
-                    <div className="text-xs font-semibold text-zinc-100">{label}</div>
+                    <div className="text-xs font-semibold text-zinc-100">
+                      {label}
+                      {object.ambiguous && <span className="text-amber-500 ml-1">? chưa chốt</span>}
+                    </div>
                     <div className="text-[10px] text-zinc-500">{object.detectionReason ?? ""}</div>
                   </div>
                 </div>
+
+                {/* Multi-hypothesis candidates — geometry cannot decide a single type */}
+                {object.candidates && object.candidates.length > 1 && (
+                  <div className="pt-1.5 mt-1 border-t border-zinc-800 space-y-1">
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-wider">Ứng viên</div>
+                    {object.candidates.slice(0, 5).map((c) => {
+                      const p = Math.round(c.prob * 100);
+                      return (
+                        <div key={c.type} className="flex items-center gap-1.5">
+                          <span className="text-[10px] w-16 shrink-0 text-zinc-300">{TYPE_LABELS[c.type] ?? c.type}</span>
+                          <div className="flex-1 h-1 rounded-full bg-zinc-800 overflow-hidden">
+                            <div className="h-full rounded-full bg-zinc-500" style={{ width: `${p}%` }} />
+                          </div>
+                          <span className="text-[9px] text-zinc-500 w-7 text-right">{p}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {onCorrectType && (
+                  <div className="pt-1.5 mt-1 border-t border-zinc-800 flex items-center gap-1.5">
+                    <span className="text-[9px] text-zinc-500 uppercase tracking-wider shrink-0">Sửa loại</span>
+                    <select
+                      value=""
+                      disabled={correcting}
+                      onChange={async (e) => {
+                        const t = e.target.value;
+                        if (!t) return;
+                        setCorrecting(true);
+                        try { await onCorrectType(object, t); } finally { setCorrecting(false); }
+                      }}
+                      className="flex-1 text-[10px] rounded bg-zinc-800 border border-zinc-700 text-zinc-300 px-1.5 py-1 outline-none disabled:opacity-50"
+                    >
+                      <option value="">{correcting ? "Đang lưu..." : "— chọn loại đúng —"}</option>
+                      {CORRECT_TYPES.map((t) => (
+                        <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Entity identity */}

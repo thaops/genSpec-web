@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Drawing, DrawingCalibration, DrawingFocusRequest, DrawingObject, DrawingScene } from "@/lib/types";
+import type { Drawing, DrawingCalibration, DrawingFocusRequest, DrawingObject, DrawingScene, LayerRule } from "@/lib/types";
 import { api, API_URL } from "@/lib/api";
 import { PdfViewer } from "./PdfViewer";
 import { DxfViewer } from "./DxfViewer";
@@ -192,6 +192,7 @@ export function DrawingWorkspace({
 }: DrawingWorkspaceProps) {
   const toast = useToast();
   const [objects, setObjects] = useState<DrawingObject[]>([]);
+  const [layerRules, setLayerRules] = useState<LayerRule[]>([]);
   const [selectedObject, setSelectedObject] = useState<DrawingObject | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [loadingObjects, setLoadingObjects] = useState(false);
@@ -440,6 +441,48 @@ export function DrawingWorkspace({
     setSelectedObject(obj);
     setInspectorOpen(true);
     onObjectSelect?.(obj);
+  }
+
+  // Load per-project layer overrides once per estimate
+  useEffect(() => {
+    if (!estimateId) return;
+    api.getLayerRules(estimateId).then(setLayerRules).catch(() => setLayerRules([]));
+  }, [estimateId]);
+
+  // Save layer overrides then re-detect so every entity on mapped layers is reclassified
+  async function handleApplyLayerRules(rules: LayerRule[]) {
+    if (!estimateId) return;
+    const saved = await api.saveLayerRules(estimateId, rules);
+    setLayerRules(saved);
+    await handleDetect();
+    toast.success(`Đã áp dụng ${saved.length} quy tắc layer`);
+  }
+
+  // Tier 3 — send residual ambiguous/unknown objects to the LLM, refresh on return
+  async function handleAiResolve() {
+    if (!activeDrawingId) return;
+    const job = addJob({ id: crypto.randomUUID(), type: "ai_detect", status: "processing", progress: 0, message: "AI đang giải đối tượng mơ hồ..." });
+    try {
+      const res = await api.aiResolveObjects(estimateId, activeDrawingId);
+      if (res.objects) setObjects(res.objects);
+      updateJob(job.id, { status: "done", progress: 100, message: res.message ?? `AI chốt ${res.resolved} đối tượng` });
+      toast.success(res.message ?? `AI chốt ${res.resolved}/${res.considered ?? 0} đối tượng`);
+    } catch {
+      updateJob(job.id, { status: "failed", message: "AI resolve thất bại" });
+    }
+  }
+
+  // Tier 4 — persist a manual type correction; update the object in place
+  async function handleCorrectType(obj: DrawingObject, type: string) {
+    if (!activeDrawingId) return;
+    try {
+      const res = await api.correctObjectType(estimateId, activeDrawingId, obj.stableId, type);
+      setObjects((prev) => prev.map((o) => (o.stableId === obj.stableId ? res.object : o)));
+      setSelectedObject(res.object);
+      toast.success(res.promoted ? `Đã sửa & tạo quy tắc layer "${obj.layer}"` : "Đã sửa loại (bền qua re-detect)");
+    } catch {
+      toast.error("Sửa loại thất bại");
+    }
   }
 
   async function handleDetect(): Promise<DrawingObject[]> {
@@ -869,6 +912,9 @@ export function DrawingWorkspace({
               setInspectorOpen(true);
             }}
             onClose={() => setReviewOpen(false)}
+            layerRules={layerRules}
+            onApplyLayerRules={handleApplyLayerRules}
+            onAiResolve={handleAiResolve}
           />
         </div>
       )}
@@ -907,6 +953,7 @@ export function DrawingWorkspace({
             onGenerateTakeoff={handleGenerateTakeoff}
             takeoffBusy={takeoffBusy}
             onJumpToBoq={onJumpToBoq}
+            onCorrectType={handleCorrectType}
           />
         </div>
       )}

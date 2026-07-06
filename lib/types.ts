@@ -651,7 +651,15 @@ export type DrawingObjectType =
   | "door" | "window" | "opening" | "ramp" | "elevator"
   // CAD entities
   | "dimension" | "leader" | "block" | "polyline" | "hatch" | "text" | "symbol" | "viewport"
-  | "axis" | "unknown";
+  | "axis" | "ignored" | "unknown";
+
+/** Per-project layer override rule (Tier 2). Undefined discriminator = match any. */
+export interface LayerRule {
+  layer: string;
+  color?: number;
+  lineType?: string;
+  type: DrawingObjectType;
+}
 
 export interface DrawingObject {
   id: string;
@@ -666,6 +674,10 @@ export interface DrawingObject {
   geometry: number[][];
   confidence: number;
   detectionReason?: string; // human-readable explanation from detector
+  // Multi-hypothesis from geometry (Tier 1). `type` = argmax; when `ambiguous` the
+  // object is unresolved — show candidates for review, don't treat `type` as final.
+  candidates?: { type: DrawingObjectType; prob: number }[];
+  ambiguous?: boolean;
   layer: string;
   boundingBox: { x: number; y: number; w: number; h: number; page?: number };
   properties: Record<string, string | number>;

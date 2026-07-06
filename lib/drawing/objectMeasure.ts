@@ -15,7 +15,7 @@ export const OBJECT_TYPE_LABELS: Record<string, string> = {
   elevator: "Thang máy", axis: "Trục",
   dimension: "Dimension", leader: "Leader", block: "Block",
   polyline: "Polyline", hatch: "Hatch", text: "Text",
-  symbol: "Symbol", viewport: "Viewport", unknown: "Không xác định",
+  symbol: "Symbol", viewport: "Viewport", ignored: "Bỏ qua", unknown: "Không xác định",
 };
 
 export interface ObjectMeasurement {

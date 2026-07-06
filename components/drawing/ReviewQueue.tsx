@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DrawingCalibration, DrawingObject } from "@/lib/types";
+import type { DrawingCalibration, DrawingObject, LayerRule } from "@/lib/types";
 import { measureObject, formatMeasure, OBJECT_TYPE_LABELS } from "@/lib/drawing/objectMeasure";
-import { Check, X as XIcon, Search, ClipboardCheck } from "lucide-react";
+import { Check, X as XIcon, Search, ClipboardCheck, Layers, Sparkles } from "lucide-react";
+import { LayerMapper } from "./LayerMapper";
 
 export type ReviewStatus = "approved" | "rejected";
 export type ReviewStates = Record<string, ReviewStatus>;
@@ -13,7 +14,8 @@ const TYPE_ICONS: Record<string, string> = {
   door: "🚪", window: "🪟", stair: "📶", roof: "🏠",
   footing: "⚓", pile: "🔩", axis: "╋", dimension: "↔", leader: "↗",
   block: "⬦", polyline: "〰", hatch: "▨", text: "T",
-  symbol: "◈", viewport: "▭", unknown: "❓",
+  opening: "🕳", ramp: "🛝",
+  symbol: "◈", viewport: "▭", ignored: "🚫", unknown: "❓",
 };
 
 interface ReviewQueueProps {
@@ -24,6 +26,11 @@ interface ReviewQueueProps {
   onSelect: (obj: DrawingObject) => void;
   onInspect: (obj: DrawingObject) => void;
   onClose: () => void;
+  // Tier 2 layer overrides — omit to hide the mapper toggle.
+  layerRules?: LayerRule[];
+  onApplyLayerRules?: (rules: LayerRule[]) => Promise<void>;
+  // Tier 3 — resolve ambiguous objects via LLM.
+  onAiResolve?: () => Promise<void>;
 }
 
 /**
@@ -39,7 +46,13 @@ export function ReviewQueue({
   onSelect,
   onInspect,
   onClose,
+  layerRules,
+  onApplyLayerRules,
+  onAiResolve,
 }: ReviewQueueProps) {
+  const [mode, setMode] = useState<"review" | "map">("review");
+  const [resolving, setResolving] = useState(false);
+  const ambiguousCount = useMemo(() => objects.filter((o) => o.ambiguous).length, [objects]);
   const sorted = useMemo(
     () => [...objects].sort((a, b) => a.confidence - b.confidence),
     [objects]
@@ -106,21 +119,51 @@ export function ReviewQueue({
             <ClipboardCheck className="h-3.5 w-3.5 text-blue-400" />
             Duyệt đối tượng
           </div>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300">
-            <XIcon className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {onApplyLayerRules && (
+              <button
+                onClick={() => setMode((m) => (m === "map" ? "review" : "map"))}
+                title="Gán loại theo layer"
+                className={`p-1 rounded ${mode === "map" ? "text-blue-400 bg-blue-500/10" : "text-zinc-500 hover:text-zinc-300"}`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300">
+              <XIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center justify-between text-[10px] text-zinc-500">
-          <span>Đã duyệt {reviewed}/{total}</span>
-          <span>{pct}%</span>
-        </div>
-        <div className="h-1 rounded-full bg-zinc-800 overflow-hidden">
-          <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="text-[9px] text-zinc-600">A duyệt · X từ chối · E inspect · ↑↓ di chuyển</div>
+        {mode === "review" && (
+          <>
+            <div className="flex items-center justify-between text-[10px] text-zinc-500">
+              <span>Đã duyệt {reviewed}/{total}</span>
+              <span>{pct}%</span>
+            </div>
+            <div className="h-1 rounded-full bg-zinc-800 overflow-hidden">
+              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="text-[9px] text-zinc-600">A duyệt · X từ chối · E inspect · ↑↓ di chuyển</div>
+            {onAiResolve && ambiguousCount > 0 && (
+              <button
+                onClick={async () => { setResolving(true); try { await onAiResolve(); } finally { setResolving(false); } }}
+                disabled={resolving}
+                className="w-full mt-1 flex items-center justify-center gap-1.5 text-[10px] font-medium rounded bg-violet-600/90 hover:bg-violet-500 disabled:opacity-50 text-white py-1"
+              >
+                <Sparkles className={`h-3 w-3 ${resolving ? "animate-pulse" : ""}`} />
+                {resolving ? "AI đang giải..." : `Giải ${ambiguousCount} đối tượng mơ hồ bằng AI`}
+              </button>
+            )}
+          </>
+        )}
       </div>
 
+      {mode === "map" && onApplyLayerRules && (
+        <LayerMapper objects={objects} initialRules={layerRules ?? []} onApply={onApplyLayerRules} />
+      )}
+
       {/* List: ascending confidence — suspicious first */}
+      {mode === "review" && (
       <div ref={listRef} className="flex-1 overflow-y-auto">
         {sorted.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-8 text-zinc-600">
@@ -148,11 +191,19 @@ export function ReviewQueue({
                 <div className="min-w-0 flex-1">
                   <div className="text-[11px] text-zinc-200 truncate">
                     {OBJECT_TYPE_LABELS[obj.type] ?? obj.type}
+                    {obj.ambiguous && <span className="text-amber-500/80">?</span>}
                     <span className="text-zinc-600"> · {obj.layer}</span>
                   </div>
                   <div className="text-[10px] text-zinc-500 truncate">
                     L {formatMeasure(m.length)} {unit} · S {formatMeasure(m.area)} {unit}²
                   </div>
+                  {obj.ambiguous && obj.candidates && obj.candidates.length > 1 && (
+                    <div className="text-[9px] text-amber-500/70 truncate">
+                      {obj.candidates.slice(0, 3).map((c) =>
+                        `${OBJECT_TYPE_LABELS[c.type] ?? c.type} ${Math.round(c.prob * 100)}%`
+                      ).join(" · ")}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col items-end gap-0.5 shrink-0">
                   <span className={`text-[10px] ${confColor}`}>{confPct}%</span>
@@ -165,6 +216,7 @@ export function ReviewQueue({
           );
         })}
       </div>
+      )}
     </div>
   );
 }
