@@ -172,6 +172,9 @@ interface Props {
   /** Mirrors a silent runTask()'s lifecycle → page renders the floating pill.
       Regular send() (user chat) never triggers this. */
   onTaskStateChange?: (s: AgentTaskState | null) => void;
+  /** Tỉnh/thành dự án (địa điểm) + setter — picker giá theo tỉnh dưới chat. */
+  province?: string;
+  onProvinceChange?: (province: string) => void;
 }
 
 export function AgentConsole({
@@ -193,6 +196,8 @@ export function AgentConsole({
   onEstimateSynced,
   onActionsApplied,
   onTaskStateChange,
+  province,
+  onProvinceChange,
 }: Props) {
   const toast = useToast();
   const [showHistory, setShowHistory] = useState(false);
@@ -1563,6 +1568,8 @@ export function AgentConsole({
               send("Tiếp tục việc đang làm dở dựa trên hội thoại trước", []);
             }}
             onResumeDismiss={() => setResumeSummary(null)}
+            province={province}
+            onProvinceChange={onProvinceChange}
           />
         )}
       </div>
@@ -1604,6 +1611,8 @@ interface ChatPanelProps {
   resumeSummary: string | null;
   onResumeContinue: () => void;
   onResumeDismiss: () => void;
+  province?: string;
+  onProvinceChange?: (province: string) => void;
 }
 
 // Suggestion chips shown above the composer while the thread is empty
@@ -1660,6 +1669,8 @@ function ChatPanel({
   resumeSummary,
   onResumeContinue,
   onResumeDismiss,
+  province,
+  onProvinceChange,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -1962,6 +1973,8 @@ function ChatPanel({
           }}
           loading={streaming}
           mentionItems={mentionItems}
+          province={province}
+          onProvinceChange={onProvinceChange}
         />
       </div>
     </>

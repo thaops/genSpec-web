@@ -587,20 +587,6 @@ export default function EstimateEditorPage() {
     return ids;
   }
 
-  // Tour animation: lần lượt chuyển + zoom qua từng sheet để tạo cảm giác agent
-  // "lật trang" thực hiện. Mỗi sheet dừng ~900ms, focus A1 + zoom nhẹ.
-  function animateSheetTour(sheetIds: string[]) {
-    sheetIds.forEach((sid, i) => {
-      setTimeout(() => {
-        setViewMode("workbook");
-        setActiveSheetId(sid);
-        workbookDriverRef.current?.zoomTo?.(sid, 1.1);
-        focusWorkbookCell(sid, 1);
-        // Trả zoom về 100% khi rời sheet
-        setTimeout(() => workbookDriverRef.current?.zoomTo?.(sid, 1), 800);
-      }, i * 900);
-    });
-  }
 
   // "⚡ Bóc toàn bộ" — LEGACY LLM path. Kept intact as the fallback when the
   // deterministic engine errors (see handleEngineTakeoff catch).
@@ -656,9 +642,12 @@ export default function EstimateEditorPage() {
         region: payload.region,
         discipline: drawings.find((d) => d.id === payload.drawingId)?.discipline,
       });
+      // injectProposal → applyProposal → driveActions: agent tự gõ text + tô màu
+      // từng ô và tự chuyển sheet khi ghi sang sheet khác (cảm giác "đang làm").
+      // KHÔNG chạy tour thủ công ở đây — nó sẽ giật active sheet khỏi chỗ agent
+      // đang gõ, làm mất hiệu ứng.
       const proposalMsgId = copilotRef.current?.injectProposal(proposal, displayText);
-      // Lật qua 3 sheet để user thấy agent "chuyển sheet" thực hiện.
-      if (sheetIds.length > 0) animateSheetTour(sheetIds);
+      void sheetIds;
       updateJob(job.id, {
         status: "done",
         progress: 100,
@@ -1056,6 +1045,10 @@ export default function EstimateEditorPage() {
           onEstimateSynced={syncEstimate}
           onActionsApplied={handleActionsApplied}
           onTaskStateChange={setAgentTask}
+          province={estimate?.projectInfo?.location}
+          onProvinceChange={(p) =>
+            apply([{ type: "set_project_info", patch: { location: p } }])
+          }
         />
       </div>
     </div>

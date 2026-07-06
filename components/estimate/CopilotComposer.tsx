@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { Spinner } from "@/components/ui/Button";
 import { SendIcon, PaperclipIcon, Cross, FileIcon } from "@/components/ui/icons";
+import { MapPin } from "lucide-react";
+import { PROVINCES } from "@/lib/provinces";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls";
 const MAX_TEXTAREA_PX = 200;
@@ -72,6 +74,9 @@ interface Props {
   onSend: () => void;
   loading: boolean;
   mentionItems?: MentionItem[];
+  /** Tỉnh/thành dự án (địa điểm) — dùng để tra giá theo tỉnh. */
+  province?: string;
+  onProvinceChange?: (province: string) => void;
 }
 
 export function CopilotComposer({
@@ -83,6 +88,8 @@ export function CopilotComposer({
   onSend,
   loading,
   mentionItems = [],
+  province,
+  onProvinceChange,
 }: Props) {
   const { t } = useT();
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -292,6 +299,25 @@ export function CopilotComposer({
           >
             <PaperclipIcon className="h-[18px] w-[18px]" />
           </button>
+          {onProvinceChange && (
+            <label
+              className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-900/60 pl-2 pr-1 py-1 text-[11px] text-zinc-300 [html.light_&]:border-zinc-700 [html.light_&]:text-zinc-300"
+              title="Địa điểm dự án — dùng để tra đơn giá theo tỉnh"
+            >
+              <MapPin className="h-3.5 w-3.5 text-accent-400 [html.light_&]:text-accent-700" />
+              <select
+                value={province ?? ""}
+                onChange={(e) => onProvinceChange(e.target.value)}
+                disabled={loading}
+                className="cursor-pointer appearance-none bg-transparent pr-1 text-[11px] text-zinc-200 focus:outline-none [html.light_&]:text-zinc-100 disabled:opacity-50"
+              >
+                <option value="" className="bg-zinc-900">Chọn tỉnh…</option>
+                {PROVINCES.map((p) => (
+                  <option key={p} value={p} className="bg-zinc-900">{p}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <span className="hidden text-[11px] text-zinc-600 sm:inline">
             {t("copilot.enterToSend")}
           </span>
