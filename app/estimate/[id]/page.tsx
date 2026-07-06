@@ -568,7 +568,13 @@ export default function EstimateEditorPage() {
         const s: Sheet = {
           id: `sheet-${Date.now()}-${i}`,
           name,
-          data: { cellData: {}, rowCount: 100, columnCount: 20 },
+          // Freeze 2 dòng đầu (tiêu đề sheet + header cột) để luôn thấy khi cuộn.
+          data: {
+            cellData: {},
+            rowCount: 100,
+            columnCount: 20,
+            freeze: { xSplit: 0, ySplit: 2, startRow: 2, startColumn: 0 },
+          } as Sheet["data"],
         };
         toAdd.push(s);
         ids.push(s.id);
