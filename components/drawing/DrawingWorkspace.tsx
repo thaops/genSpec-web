@@ -23,7 +23,8 @@ import {
   loadTakeoffAssumptions,
   DEFAULT_TAKEOFF_ASSUMPTIONS,
 } from "./TakeoffAssumptions";
-import { AlertTriangle, Ruler, Settings2, Sparkles, Zap } from "lucide-react";
+import { AlertTriangle, RotateCw, Ruler, Settings2, Sparkles, Zap } from "lucide-react";
+import { isStuck, parseElapsedMs, parseStatusLabel } from "@/lib/drawing/parseProgress";
 
 // Quy đổi đơn vị bản vẽ ($INSUNITS) → mét
 const INSUNITS_TO_METERS: Record<string, number> = {
@@ -32,34 +33,75 @@ const INSUNITS_TO_METERS: Record<string, number> = {
   inch: 0.0254,
 };
 
-const PARSE_STATUS_LABELS: Record<string, string> = {
-  queued:     "Đang xếp hàng xử lý...",
-  converting: "Đang chuyển đổi DWG → DXF...",
-  parsing:    "Đang đọc bản vẽ...",
-  detecting:  "Đang phân tích đối tượng...",
-  indexing:   "Đang tạo search index...",
-  graph:      "Đang xây dựng relationship graph...",
-  failed:     "Xử lý thất bại",
-};
-
-function DrawingProcessingState({ drawing }: { drawing: Drawing }) {
-  const status = drawing.parseStatus ?? "queued";
+function DrawingProcessingState({
+  drawing,
+  onRetry,
+  retrying,
+}: {
+  drawing: Drawing;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
+  const status = drawing.parseStatus ?? "pending";
   const isFailed = status === "failed";
+  // Đếm elapsed để hiển thị (Ns) và phát hiện kẹt — tick mỗi giây.
+  const [now, setNow] = useState(() => Date.now());
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    if (isFailed) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isFailed]);
+
+  const elapsedMs = parseElapsedMs(drawing, now);
+  const seconds = Math.floor(elapsedMs / 1000);
+  const stuck = !isFailed && !dismissed && isStuck(elapsedMs);
+
+  const RetryButton = () =>
+    onRetry ? (
+      <button
+        onClick={onRetry}
+        disabled={retrying}
+        className="flex items-center gap-1.5 rounded bg-accent-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-accent-500 disabled:opacity-50"
+      >
+        {retrying ? <Spinner className="h-3 w-3" /> : <RotateCw className="h-3 w-3" />}
+        Thử lại
+      </button>
+    ) : null;
+
   return (
     <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
       {isFailed ? (
         <>
-          <AlertTriangle className="h-6 w-6 text-amber-400" />
+          <AlertTriangle className="h-6 w-6 text-rose-400" />
           <p className="text-sm text-rose-400">Xử lý thất bại</p>
           {drawing.parseError && (
             <p className="text-xs text-zinc-600 max-w-xs text-center">{drawing.parseError}</p>
           )}
+          <RetryButton />
+        </>
+      ) : stuck ? (
+        <>
+          <AlertTriangle className="h-6 w-6 text-amber-400" />
+          <p className="text-sm text-amber-300">Xử lý lâu hơn thường lệ ({seconds}s)</p>
+          <p className="text-xs text-zinc-600 max-w-xs text-center">
+            Bản vẽ có thể bị kẹt. Thử lại hoặc để xử lý nền và xem sau.
+          </p>
+          <div className="flex items-center gap-2">
+            <RetryButton />
+            <button
+              onClick={() => setDismissed(true)}
+              className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-700"
+            >
+              Xử lý nền, xem sau
+            </button>
+          </div>
         </>
       ) : (
         <>
           <Spinner className="h-6 w-6" />
-          <p className="text-sm">{PARSE_STATUS_LABELS[status] ?? "Đang xử lý..."}</p>
-          <p className="text-xs text-zinc-600">Trang sẽ tự refresh khi xong</p>
+          <p className="text-sm">{parseStatusLabel(status)} ({seconds}s)</p>
+          <p className="text-xs text-zinc-600">Trang sẽ tự cập nhật khi xong</p>
         </>
       )}
     </div>
@@ -180,19 +222,21 @@ export function DrawingWorkspace({
 
   const activeDrawing = drawings.find((d) => d.id === activeDrawingId);
 
-  // Poll drawing status when not ready
-  useEffect(() => {
-    if (!activeDrawing?.id || activeDrawing.parseStatus === "ready" || activeDrawing.parseStatus === "failed") return;
-    const interval = setInterval(async () => {
-      try {
-        const updated = await api.getDrawing(estimateId, activeDrawing.id);
-        if (updated.parseStatus !== activeDrawing.parseStatus) {
-          onDrawingsChange?.(drawings.map((d) => (d.id === updated.id ? { ...d, ...updated } : d)));
-        }
-      } catch {}
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [estimateId, activeDrawing?.id, activeDrawing?.parseStatus]);
+  // Poll trạng thái parse do page xử lý tập trung (poll TẤT CẢ bản vẽ chưa
+  // ready). Workspace chỉ đọc activeDrawing từ prop → không poll trùng ở đây.
+  const [retrying, setRetrying] = useState(false);
+  async function handleRetryParse() {
+    if (!activeDrawingId || retrying) return;
+    setRetrying(true);
+    try {
+      const updated = await api.reparseDrawing(estimateId, activeDrawingId);
+      onDrawingsChange?.(drawings.map((d) => (d.id === updated.id ? { ...d, ...updated } : d)));
+    } catch {
+      toast.error("Không thử lại được", "Vui lòng thử lại sau ít phút.");
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   // Load objects when drawing becomes ready (first select OR after parsing completes)
   useEffect(() => {
@@ -697,18 +741,24 @@ export function DrawingWorkspace({
                 />
               )}
             </div>
-            {onProjectTakeoff &&
-              drawings.filter((d) => !d.parseStatus || d.parseStatus === "ready").length >= 2 && (
+            {onProjectTakeoff && drawings.length >= 2 && (() => {
+              const readyCount = drawings.filter((d) => !d.parseStatus || d.parseStatus === "ready").length;
+              const pending = drawings.length - readyCount;
+              const allReady = pending === 0;
+              return (
                 <button
                   onClick={onProjectTakeoff}
-                  disabled={fullTakeoffRunning || detecting || takeoffBusy}
-                  title="Bóc khối lượng TẤT CẢ bản vẽ trong dự án (mỗi bản theo bộ môn) vào cùng sheet 'Khối lượng'"
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-accent-300 disabled:opacity-50 text-[11px] transition-colors"
+                  disabled={!allReady || fullTakeoffRunning || detecting || takeoffBusy}
+                  title={allReady
+                    ? "Bóc khối lượng TẤT CẢ bản vẽ trong dự án (mỗi bản theo bộ môn) vào cùng sheet 'Khối lượng'"
+                    : `Đợi ${pending} bản vẽ xử lý xong`}
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-accent-300 disabled:opacity-50 disabled:cursor-not-allowed text-[11px] transition-colors"
                 >
                   <Zap className="h-3 w-3" />
-                  <span>Bóc toàn bộ dự án</span>
+                  <span>{allReady ? "Bóc toàn bộ dự án" : `Bóc dự án (đợi ${pending})`}</span>
                 </button>
-              )}
+              );
+            })()}
             <button
               onClick={() => setReviewOpen((v) => !v)}
               disabled={objects.length === 0}
@@ -789,7 +839,7 @@ export function DrawingWorkspace({
             />
           )}
           {isProcessing && (
-            <DrawingProcessingState drawing={activeDrawing} />
+            <DrawingProcessingState drawing={activeDrawing} onRetry={handleRetryParse} retrying={retrying} />
           )}
           {isImage && (
             <div className="flex items-center justify-center h-full bg-zinc-900/50 p-4">

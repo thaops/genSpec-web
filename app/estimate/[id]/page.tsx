@@ -33,6 +33,7 @@ import { DrawingWorkspace } from "@/components/drawing/DrawingWorkspace";
 import type { DrawingViewportInfo, EngineTakeoffPayload } from "@/components/drawing/DrawingWorkspace";
 import { DEFAULT_TAKEOFF_ASSUMPTIONS, loadTakeoffAssumptions } from "@/components/drawing/TakeoffAssumptions";
 import { SplitView } from "@/components/drawing/SplitView";
+import { PARSE_POLL_MS, isParsing } from "@/lib/drawing/parseProgress";
 import { AlertTriangle, BarChart3 } from "lucide-react";
 import type { DrawingObjectType } from "@/lib/types";
 
@@ -189,6 +190,29 @@ export default function EstimateEditorPage() {
       alive = false;
     };
   }, [id]);
+
+  // Poll TẤT CẢ bản vẽ chưa ready (pending/converting/parsing) — không chỉ bản
+  // đang mở. Giữ badge Explorer + nút "Bóc toàn bộ dự án" cập nhật đúng, và
+  // tránh kẹt loading khi bản vẽ nền xong. Dừng khi không còn bản nào đang parse.
+  const parsingSig = drawings.filter((d) => isParsing(d.parseStatus)).map((d) => d.id).join(",");
+  useEffect(() => {
+    if (!parsingSig) return;
+    const ids = parsingSig.split(",");
+    const interval = setInterval(async () => {
+      const updates = await Promise.all(
+        ids.map((did) => api.getDrawing(id, did).catch(() => null))
+      );
+      const byId = new Map(updates.filter(Boolean).map((u) => [u!.id, u!]));
+      if (byId.size === 0) return;
+      setDrawings((prev) =>
+        prev.map((d) => {
+          const u = byId.get(d.id);
+          return u && u.parseStatus !== d.parseStatus ? { ...d, ...u } : d;
+        })
+      );
+    }, PARSE_POLL_MS);
+    return () => clearInterval(interval);
+  }, [id, parsingSig]);
 
   // Init context engine when workspace loads
   useEffect(() => {

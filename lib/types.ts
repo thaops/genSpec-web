@@ -616,6 +616,7 @@ export interface Drawing {
   pageCount?: number;
   parseStatus?: "pending" | "converting" | "parsing" | "ready" | "failed";
   parseError?: string;
+  parseStartedAt?: string;
   createdAt: string;
 }
 

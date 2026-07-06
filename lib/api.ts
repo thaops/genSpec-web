@@ -460,6 +460,13 @@ export const api = {
     return out;
   },
 
+  // Bóc lại bản vẽ bị kẹt/lỗi parse — reset 'parsing' + chạy lại pipeline.
+  reparseDrawing: (estimateId: string, drawingId: string) =>
+    request<Drawing>(
+      `/estimates/${estimateId}/drawings/${drawingId}/reparse`,
+      { method: "POST" }
+    ),
+
   // User chỉnh tay bộ môn của bản vẽ.
   setDrawingDiscipline: (estimateId: string, drawingId: string, discipline: string) =>
     request<Drawing>(

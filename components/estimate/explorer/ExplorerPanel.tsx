@@ -5,12 +5,14 @@ import type { Drawing, Estimate, Sheet } from "@/lib/types";
 import {
   FileText, Ruler, Brain,
   Pencil, Trash2, Image, ChevronRight, ChevronDown, Plus, Check,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, RotateCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/api";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { useToast } from "@/components/ui/Toast";
+import { Spinner } from "@/components/ui/Button";
+import { isParsing } from "@/lib/drawing/parseProgress";
 
 const ACCEPTED_DRAWINGS = ".pdf,.dxf,.dwg,.jpg,.jpeg,.png";
 
@@ -148,10 +150,28 @@ export function ExplorerPanel({
   async function handleAddDrawings(files: File[]) {
     if (files.length === 0) return;
     if (files.length > 1) toast.info(`Đang xử lý ${files.length} bản vẽ`);
+    let acc = drawings;
+    let lastId: string | undefined;
     for (const file of files) {
       const drawing = await uploadOne(file);
-      if (drawing) onDrawingsChange?.([...drawings, drawing]);
+      if (drawing) {
+        acc = [...acc, drawing];
+        lastId = drawing.id;
+        onDrawingsChange?.(acc);
+      }
     }
+    // Tự chọn bản vẽ mới nhất để user thấy ngay tiến trình xử lý.
+    if (lastId) onDrawingSelect(lastId);
+  }
+
+  // Bóc lại bản vẽ bị kẹt/lỗi parse (nút "Thử lại" inline).
+  function reparseDrawing(drawingId: string) {
+    onDrawingsChange?.(
+      drawings.map((d) => (d.id === drawingId ? { ...d, parseStatus: "parsing", parseError: undefined } : d))
+    );
+    api.reparseDrawing(estimate.id, drawingId)
+      .then((updated) => onDrawingsChange?.(drawings.map((d) => (d.id === drawingId ? { ...d, ...updated } : d))))
+      .catch(() => toast.error("Không thử lại được"));
   }
 
   function setDrawingDiscipline(drawingId: string, discipline: string) {
@@ -378,6 +398,7 @@ export function ExplorerPanel({
                               active={viewMode === "drawing" && activeDrawingId === drawing.id}
                               onSelect={() => { onDrawingSelect(drawing.id); onViewModeChange("drawing"); }}
                               onSetDiscipline={(code) => setDrawingDiscipline(drawing.id, code)}
+                              onReparse={() => reparseDrawing(drawing.id)}
                               onDelete={
                                 onDeleteDrawing
                                   ? () => {
@@ -488,22 +509,40 @@ const DRAWING_TYPE_ICON: Record<string, DrawingIconComp> = {
   image: Image,
 };
 
+/** Chấm trạng thái parse: vàng+spinner=đang xử lý, xanh=ready, đỏ=failed. */
+function StatusDot({ status }: { status?: string }) {
+  if (isParsing(status)) {
+    return (
+      <span className="shrink-0" title="Đang xử lý">
+        <Spinner className="h-2.5 w-2.5 text-amber-400" />
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return <span className="h-2 w-2 shrink-0 rounded-full bg-rose-500" title="Xử lý thất bại" />;
+  }
+  return <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title="Sẵn sàng" />;
+}
+
 function DrawingItem({
   drawing,
   active,
   onSelect,
   onSetDiscipline,
   onDelete,
+  onReparse,
 }: {
   drawing: Drawing;
   active: boolean;
   onSelect: () => void;
   onSetDiscipline: (code: string) => void;
   onDelete?: () => void;
+  onReparse?: () => void;
 }) {
   const Icon = DRAWING_TYPE_ICON[drawing.type] ?? FileText;
   const [menuOpen, setMenuOpen] = useState(false);
   const current = normDiscipline(drawing.discipline);
+  const isFailed = drawing.parseStatus === "failed";
 
   // Đóng menu khi click ra ngoài
   useEffect(() => {
@@ -527,6 +566,8 @@ function DrawingItem({
         )}
       />
       <span className="min-w-0 flex-1 truncate">{drawing.name}</span>
+
+      <StatusDot status={drawing.parseStatus} />
 
       {/* Badge bộ môn + dropdown đổi bộ môn */}
       <div className="relative shrink-0">
@@ -561,6 +602,16 @@ function DrawingItem({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        {isFailed && onReparse && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onReparse(); }}
+            className="rounded p-1 text-zinc-500 transition-colors hover:text-accent-400"
+            aria-label="Thử lại"
+            title="Thử lại xử lý bản vẽ"
+          >
+            <RotateCw className="h-3 w-3" />
+          </button>
+        )}
         {onDelete && (
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
