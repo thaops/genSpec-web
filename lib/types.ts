@@ -325,6 +325,24 @@ export interface ProposalPreview {
   diffs: ProposalDiff[];
 }
 
+export interface UnmatchedResource {
+  kind: "material" | "labor" | "equipment";
+  ref: string;
+  name: string;
+}
+
+/** Kết quả áp giá tỉnh — proposal chưa apply, kèm coverage & preview. */
+export interface RepricePlan {
+  province: string | null;
+  effectiveDate: string | null;
+  sourceDoc: string | null;
+  coverage: { matched: number; total: number };
+  unmatched: UnmatchedResource[];
+  actions: Action[];
+  preview: ProposalPreview | null;
+  message: string;
+}
+
 export interface Sheet {
   id: string;
   name: string;

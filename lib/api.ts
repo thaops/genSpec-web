@@ -12,6 +12,7 @@ import type {
   InsightItem,
   OfficialFeedItem,
   Action,
+  RepricePlan,
   ApplyActionsResponse,
   ApiErrorBody,
   Drawing,
@@ -323,6 +324,14 @@ export const api = {
     request<ApplyActionsResponse>(`/estimates/${id}/actions`, {
       method: "POST",
       body: { actions, source },
+    }),
+
+  // ---------- Reprice (áp giá tỉnh) ----------
+  // Trả proposal + coverage; KHÔNG tự apply. Caller preview rồi gọi applyActions.
+  reprice: (id: string, province?: string) =>
+    request<RepricePlan>(`/estimates/${id}/reprice`, {
+      method: "POST",
+      body: { province },
     }),
 
   rollback: (id: string, patchId: string) =>

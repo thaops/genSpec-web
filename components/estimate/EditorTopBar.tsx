@@ -9,7 +9,7 @@ import { Button, Spinner } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
-import { ChevronDown, LayoutPanelLeft, Upload } from "lucide-react";
+import { ChevronDown, Coins, LayoutPanelLeft, Upload } from "lucide-react";
 import { NotificationBell } from "@/components/ui/NotificationCenter";
 
 interface Props {
@@ -20,6 +20,8 @@ interface Props {
   exporting: boolean;
   onImportExcel?: (file: File) => void;
   importing?: boolean;
+  onReprice?: () => void;
+  repricing?: boolean;
   saveState?: "idle" | "dirty" | "saving" | "saved";
   splitMode?: boolean;
   onSplitModeChange?: (v: boolean) => void;
@@ -33,6 +35,8 @@ export function EditorTopBar({
   exporting,
   onImportExcel,
   importing = false,
+  onReprice,
+  repricing = false,
   saveState = "idle",
   splitMode,
   onSplitModeChange,
@@ -186,6 +190,18 @@ export function EditorTopBar({
             {importing ? t("editor.importing") : t("editor.importExcel")}
           </Button>
         </>
+      )}
+
+      {onReprice && (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={onReprice}
+          loading={repricing}
+          leftIcon={<Coins className="h-4 w-4" />}
+        >
+          {repricing ? "Đang áp giá…" : "Áp giá tỉnh"}
+        </Button>
       )}
 
       <div ref={exportMenuRef} className="relative">

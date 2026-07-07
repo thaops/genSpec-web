@@ -84,6 +84,7 @@ export default function EstimateEditorPage() {
   const [activeSheetId, setActiveSheetId] = useState<string>("");
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [repricing, setRepricing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [renamingSheetId, setRenamingSheetId] = useState<string | null>(null);
@@ -373,6 +374,33 @@ export default function EstimateEditorPage() {
       toast.error(t("editor.exportFailed"), (err as ApiError).message);
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function onReprice() {
+    if (!estimate || repricing) return;
+    setRepricing(true);
+    try {
+      const plan = await api.reprice(estimate.id);
+      if (!plan.actions.length) {
+        toast.error("Áp giá tỉnh", plan.message);
+        return;
+      }
+      const delta = plan.preview?.costDelta ?? 0;
+      const deltaStr = `${delta >= 0 ? "+" : ""}${delta.toLocaleString("vi-VN")}đ`;
+      const missing = plan.unmatched.length
+        ? `\nCòn ${plan.unmatched.length} tài nguyên chưa khớp giá.`
+        : "";
+      const ok = window.confirm(
+        `${plan.message}\nCập nhật ${plan.actions.length} dòng giá, tổng mức đổi ${deltaStr}.${missing}\n\nÁp dụng?`,
+      );
+      if (!ok) return;
+      const applied = await apply(plan.actions);
+      if (applied) toast.success("Đã áp giá tỉnh", plan.message);
+    } catch (err) {
+      toast.error("Áp giá tỉnh thất bại", (err as ApiError).message);
+    } finally {
+      setRepricing(false);
     }
   }
 
@@ -981,6 +1009,8 @@ export default function EstimateEditorPage() {
         exporting={exporting}
         onImportExcel={onImportExcel}
         importing={importing}
+        onReprice={onReprice}
+        repricing={repricing}
         saveState={saveState}
         splitMode={splitMode}
         onSplitModeChange={setSplitMode}
