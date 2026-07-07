@@ -163,6 +163,48 @@ export default function WorkbookEditor({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
+  // Sheets + style-registry đang hiển thị, để re-apply màu khi đổi sheet (Explorer).
+  const styledSheetsRef = useRef<Sheet[]>([]);
+  const collectedStylesRef = useRef<Record<string, any>>({});
+
+  /**
+   * Ép áp inline cell-style (nền/chữ/đậm) vào Univer qua Facade — Univer không tự
+   * render cellData.s khi import/đổi sheet → phải set tay để hiện màu. onlySheetId
+   * để re-apply đúng 1 sheet khi user chuyển tab. drivingRef chặn auto-save.
+   */
+  function applyInlineStyles(onlySheetId?: string) {
+    const wb = univerAPIRef.current?.getActiveWorkbook?.();
+    if (!wb) return;
+    const prevDriving = drivingRef.current;
+    drivingRef.current = true;
+    try {
+      for (const s of styledSheetsRef.current) {
+        if (onlySheetId && s.id !== onlySheetId) continue;
+        const ws = wb.getSheetBySheetId?.(s.id);
+        if (!ws) continue;
+        const cd = (s.data?.cellData ?? {}) as Record<string, Record<string, any>>;
+        for (const [rStr, cols] of Object.entries(cd)) {
+          for (const [cStr, cell] of Object.entries(cols)) {
+            let st = (cell as any)?.s;
+            if (typeof st === "string") st = collectedStylesRef.current[st];
+            if (!st || typeof st !== "object") continue;
+            try {
+              const range = ws.getRange?.(Number(rStr), Number(cStr), 1, 1);
+              if (!range) continue;
+              if (st.bg?.rgb) range.setBackgroundColor(st.bg.rgb);
+              if (st.cl?.rgb) range.setFontColor(st.cl.rgb);
+              if (st.bl) range.setFontWeight?.("bold");
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[WorkbookEditor] applyInlineStyles failed", e);
+    } finally {
+      drivingRef.current = prevDriving;
+    }
+  }
+
   // isDark can be explicitly passed (effect ordering fix: child effects run BEFORE
   // parent ThemeProvider updates html class, so reading classList here would be stale).
   function applyUniverColors(isDark?: boolean) {
@@ -280,35 +322,11 @@ export default function WorkbookEditor({
         if (target) wb.setActiveSheet(target);
       }
 
-      // Ép áp inline cell-style (nền/chữ/đậm) qua Facade API — một số bản Univer
-      // KHÔNG render style trong cellData.s khi import (chỉ hiện sau khi thao tác),
-      // gây "mất màu khi load/chuyển tab". Set lại tay đảm bảo màu hiện ngay.
-      // drivingRef chặn auto-save do các lệnh set-style gây ra.
-      try {
-        drivingRef.current = true;
-        for (const s of workbookData.sheets ?? []) {
-          const ws = wb.getSheetBySheetId(s.id);
-          if (!ws) continue;
-          const cd = (s.data?.cellData ?? {}) as Record<string, Record<string, any>>;
-          for (const [rStr, cols] of Object.entries(cd)) {
-            for (const [cStr, cell] of Object.entries(cols)) {
-              let st = (cell as any)?.s;
-              if (typeof st === "string") st = collectedStyles[st];
-              if (!st || typeof st !== "object") continue;
-              try {
-                const range = ws.getRange(Number(rStr), Number(cStr), 1, 1);
-                if (st.bg?.rgb) range.setBackgroundColor(st.bg.rgb);
-                if (st.cl?.rgb) range.setFontColor(st.cl.rgb);
-                if (st.bl) range.setFontWeight?.("bold");
-              } catch (_) {}
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("[WorkbookEditor] style reapply failed", e);
-      } finally {
-        drivingRef.current = false;
-      }
+      // Ép áp inline cell-style (nền/chữ/đậm) qua Facade API — Univer không render
+      // cellData.s khi import → "mất màu khi load/chuyển tab". Re-apply đảm bảo màu.
+      styledSheetsRef.current = workbookData.sheets ?? [];
+      collectedStylesRef.current = collectedStyles;
+      applyInlineStyles();
 
       // Highlight cells that changed vs previous Univer snapshot (AI edit animation)
       const prevSheets = lastSheetsRef.current;
@@ -539,6 +557,9 @@ export default function WorkbookEditor({
       const target = wb.getSheetBySheetId?.(activeSheetId);
       if (target) wb.setActiveSheet(target);
     }
+    // Re-apply màu cho sheet vừa chuyển tới (Explorer → sheet làm mất màu vì
+    // Univer render lại sheet từ cellData không kèm style).
+    applyInlineStyles(activeSheetId);
   }, [activeSheetId]);
 
   useEffect(() => {
