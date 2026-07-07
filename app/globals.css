@@ -91,6 +91,19 @@ html.light .text-white {
   color: var(--color-zinc-50) !important;
 }
 
+/* Faint accent/blue text (cyan 200-400) quá nhạt trên nền sáng — dùng khắp chat
+   (thinking, indicator, chip, nút). Trong light theme đổi sang tông đậm đọc được.
+   Các chỗ này đều nằm trên nền nhạt/tint nên đậm hơn luôn đúng. */
+html.light .text-accent-200,
+html.light .text-accent-300,
+html.light .text-accent-400 {
+  color: var(--color-accent-700) !important;
+}
+html.light .text-blue-300,
+html.light .text-blue-400 {
+  color: #1d4ed8 !important;
+}
+
 /* Thin, premium scrollbars */
 * {
   scrollbar-width: thin;
