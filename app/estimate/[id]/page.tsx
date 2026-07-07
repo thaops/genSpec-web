@@ -869,6 +869,10 @@ export default function EstimateEditorPage() {
           })()}
           <div className="flex-1 min-h-0 relative">
             <WorkbookEditor
+              // Remount HẲN khi reinitKey đổi (sau khi agent apply có format_sheet)
+              // → Univer mount mới đọc lại style/màu như F5, không cần reload tay.
+              // (reinit nội bộ đôi lúc không áp style deduped → remount chắc ăn.)
+              key={`wb-${estimate.id}-${workbookReinitKey}`}
               workbookData={{
                 id: estimate.id,
                 userId: estimate.userId,
