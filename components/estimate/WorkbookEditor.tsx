@@ -274,10 +274,36 @@ export default function WorkbookEditor({
       requestAnimationFrame(() => applyUniverColors(themeRef.current === "dark"));
 
       // Collect workbook-level styles stored on the first sheet after import
-      const collectedStyles: Record<string, any> = {};
+      const styleRegistry: Record<string, any> = {};
       for (const s of (workbookData.sheets ?? [])) {
-        if (s.data?._styles) Object.assign(collectedStyles, s.data._styles);
+        if (s.data?._styles) Object.assign(styleRegistry, s.data._styles);
       }
+      // INTERN inline cell-style (cell.s = object) vào registry, thay bằng ID (ref).
+      // Univer render style qua REGISTRY ổn định trên MỌI sheet; style dạng inline
+      // object hay không hiện trên sheet chưa active (gốc bug "mất màu khi chuyển tab").
+      const styleIndex = new Map<string, string>();
+      let styleSeq = 0;
+      const internStyle = (st: any): string => {
+        const json = JSON.stringify(st);
+        let id = styleIndex.get(json);
+        if (!id) {
+          id = `bqs${styleSeq++}`;
+          styleIndex.set(json, id);
+          styleRegistry[id] = st;
+        }
+        return id;
+      };
+      const internCellData = (cd: Record<string, Record<string, any>>) => {
+        const out: Record<string, Record<string, any>> = {};
+        for (const [r, cols] of Object.entries(cd)) {
+          out[r] = {};
+          for (const [c, cell] of Object.entries(cols)) {
+            const st = (cell as any)?.s;
+            out[r][c] = st && typeof st === "object" ? { ...cell, s: internStyle(st) } : cell;
+          }
+        }
+        return out;
+      };
 
       // Build sheets — spread full Univer sheet data so columnData/rowData/mergeData survive reload
       const sheets: Record<string, any> = {};
@@ -291,7 +317,7 @@ export default function WorkbookEditor({
             ...univerSheetData,
             id: s.id,
             name: s.name,
-            cellData: s.data?.cellData ?? {},
+            cellData: internCellData(s.data?.cellData ?? {}),
             rowCount: s.data?.rowCount ?? 100,
             columnCount: s.data?.columnCount ?? 20,
           };
@@ -306,7 +332,7 @@ export default function WorkbookEditor({
       univerAPI.createWorkbook({
         id: workbookData.id || "wb",
         name: workbookData.name || "GenSpec",
-        styles: collectedStyles,
+        styles: styleRegistry,
         sheets,
         sheetOrder,
       });
@@ -322,10 +348,10 @@ export default function WorkbookEditor({
         if (target) wb.setActiveSheet(target);
       }
 
-      // Ép áp inline cell-style (nền/chữ/đậm) qua Facade API — Univer không render
-      // cellData.s khi import → "mất màu khi load/chuyển tab". Re-apply đảm bảo màu.
+      // Safety net: ép áp lại style qua Facade (registry ở trên là chính; facade
+      // bù cho trường hợp bản Univer vẫn không render sheet chưa active).
       styledSheetsRef.current = workbookData.sheets ?? [];
-      collectedStylesRef.current = collectedStyles;
+      collectedStylesRef.current = styleRegistry;
       applyInlineStyles();
 
       // Highlight cells that changed vs previous Univer snapshot (AI edit animation)
