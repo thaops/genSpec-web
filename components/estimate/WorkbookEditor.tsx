@@ -280,6 +280,36 @@ export default function WorkbookEditor({
         if (target) wb.setActiveSheet(target);
       }
 
+      // Ép áp inline cell-style (nền/chữ/đậm) qua Facade API — một số bản Univer
+      // KHÔNG render style trong cellData.s khi import (chỉ hiện sau khi thao tác),
+      // gây "mất màu khi load/chuyển tab". Set lại tay đảm bảo màu hiện ngay.
+      // drivingRef chặn auto-save do các lệnh set-style gây ra.
+      try {
+        drivingRef.current = true;
+        for (const s of workbookData.sheets ?? []) {
+          const ws = wb.getSheetBySheetId(s.id);
+          if (!ws) continue;
+          const cd = (s.data?.cellData ?? {}) as Record<string, Record<string, any>>;
+          for (const [rStr, cols] of Object.entries(cd)) {
+            for (const [cStr, cell] of Object.entries(cols)) {
+              let st = (cell as any)?.s;
+              if (typeof st === "string") st = collectedStyles[st];
+              if (!st || typeof st !== "object") continue;
+              try {
+                const range = ws.getRange(Number(rStr), Number(cStr), 1, 1);
+                if (st.bg?.rgb) range.setBackgroundColor(st.bg.rgb);
+                if (st.cl?.rgb) range.setFontColor(st.cl.rgb);
+                if (st.bl) range.setFontWeight?.("bold");
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[WorkbookEditor] style reapply failed", e);
+      } finally {
+        drivingRef.current = false;
+      }
+
       // Highlight cells that changed vs previous Univer snapshot (AI edit animation)
       const prevSheets = lastSheetsRef.current;
       if (prevSheets.length > 0) {
