@@ -196,9 +196,20 @@ export default function WorkbookEditor({
             try {
               const range = ws.getRange?.(Number(rStr), Number(cStr), 1, 1);
               if (!range) continue;
-              if (st.bg?.rgb) range.setBackgroundColor(st.bg.rgb);
-              if (st.cl?.rgb) range.setFontColor(st.cl.rgb);
+              // Tô lại ĐẦY ĐỦ thuộc tính style (trước chỉ bg/màu/đậm → đổi sheet
+              // mất cỡ chữ/nghiêng/canh lề/border). Optional-chaining: method nào
+              // Univer không có thì no-op, không vỡ.
+              if (st.bg?.rgb) range.setBackgroundColor?.(st.bg.rgb);
+              if (st.cl?.rgb) range.setFontColor?.(st.cl.rgb);
               if (st.bl) range.setFontWeight?.("bold");
+              if (st.it) range.setFontStyle?.("italic");
+              if (typeof st.fs === "number") range.setFontSize?.(st.fs);
+              if (st.ff) range.setFontFamily?.(st.ff);
+              // Canh lề ngang/dọc — Univer mã hoá 1/2/3; map sang chuỗi facade.
+              const HA: Record<number, string> = { 1: "left", 2: "center", 3: "right" };
+              const VA: Record<number, string> = { 1: "top", 2: "middle", 3: "bottom" };
+              if (st.ht != null && HA[st.ht]) range.setHorizontalAlignment?.(HA[st.ht]);
+              if (st.vt != null && VA[st.vt]) range.setVerticalAlignment?.(VA[st.vt]);
             } catch (_) {}
           }
         }
@@ -424,8 +435,12 @@ export default function WorkbookEditor({
           return { id: s.id || key, name: s.name || "Sheet", data: s };
         });
 
-        // Only save if cell data actually changed (skip scroll/selection commands)
-        const hash = JSON.stringify(updated.map((s) => s.data?.cellData ?? {}));
+        // Only save if cell data OR STYLE changed. Trước hash chỉ theo cellData →
+        // đổi màu/định dạng thuần (registry _styles đổi, cell.s ID giữ nguyên)
+        // không lưu → reload mất style. Nay kèm _styles vào hash.
+        const hash = JSON.stringify(
+          updated.map((s) => [s.data?.cellData ?? {}, (s.data as any)?._styles ?? null]),
+        );
         if (hash === lastCellHashRef.current) return;
         lastCellHashRef.current = hash;
         lastSheetsRef.current = updated; // track what's shown in Univer
