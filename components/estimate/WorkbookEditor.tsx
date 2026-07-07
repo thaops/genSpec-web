@@ -350,6 +350,23 @@ export default function WorkbookEditor({
         sheetOrder.push(sid);
       }
 
+      // DIAGNOSTIC style (tạm): mở DevTools console lúc reload để biết DB chứa gì.
+      // objS = cell.s dạng object (chuẩn) · idS = cell.s dạng string ID · dead =
+      // ID không có trong registry (data cũ chết) · reg = số style trong registry.
+      try {
+        for (const s of workbookData.sheets ?? []) {
+          const cd = (s.data?.cellData ?? {}) as Record<string, Record<string, any>>;
+          let objS = 0, idS = 0, dead = 0;
+          for (const cols of Object.values(cd)) for (const cell of Object.values(cols)) {
+            const st = (cell as any)?.s;
+            if (st && typeof st === "object") objS++;
+            else if (typeof st === "string") { idS++; if (!styleRegistry[st]) dead++; }
+          }
+          // eslint-disable-next-line no-console
+          console.log(`[WBStyle] sheet "${s.name}" objS=${objS} idS=${idS} dead=${dead} reg=${Object.keys(styleRegistry).length} _styles=${!!s.data?._styles}`);
+        }
+      } catch {}
+
       univerAPI.createWorkbook({
         id: workbookData.id || "wb",
         name: workbookData.name || "GenSpec",
