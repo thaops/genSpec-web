@@ -110,24 +110,24 @@ function WorkspaceCard({
       onClick={onClick}
       className="group flex w-full flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50 text-left transition-all duration-200 hover:border-zinc-700 hover:bg-zinc-900 hover:shadow-xl hover:shadow-black/40"
     >
-      {/* Thumbnail */}
-      <div className="relative aspect-video w-full overflow-hidden bg-zinc-950">
+      {/* Thumbnail — gradient LUÔN làm nền; ảnh scene (nét trắng trong suốt) phủ lên. */}
+      <div
+        className={cn(
+          "relative aspect-video w-full overflow-hidden bg-gradient-to-br",
+          colors[0],
+          colors[1],
+        )}
+      >
         {showImg ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={est.thumbnail!}
             alt=""
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+            className="absolute inset-0 h-full w-full object-contain p-2 transition-transform duration-300 group-hover:scale-[1.03]"
             onError={() => setImgErr(true)}
           />
         ) : (
-          <div
-            className={cn(
-              "flex h-full w-full items-center justify-center bg-gradient-to-br",
-              colors[0],
-              colors[1],
-            )}
-          >
+          <div className="flex h-full w-full items-center justify-center">
             {initials ? (
               <span className="text-3xl font-bold text-white/20 select-none">
                 {initials}

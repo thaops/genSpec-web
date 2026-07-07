@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Drawing, DrawingCalibration, DrawingFocusRequest, DrawingObject, DrawingScene, LayerRule } from "@/lib/types";
 import { api, API_URL } from "@/lib/api";
+import { renderSceneThumbnail } from "@/lib/drawing/sceneThumbnail";
 import { PdfViewer } from "./PdfViewer";
 import { DxfViewer } from "./DxfViewer";
 import { DwgCanvasViewer } from "./DwgCanvasViewer";
@@ -220,6 +221,8 @@ export function DrawingWorkspace({
   // Calibration gate dialog — holds the detected objects awaiting a decision
   // Track drawings already announced to avoid duplicate notifications
   const announcedDrawings = useRef<Set<string>>(new Set());
+  // Drawings đã gen thumbnail trong phiên này — tránh POST lại mỗi lần mở.
+  const thumbedDrawings = useRef<Set<string>>(new Set());
 
   const activeDrawing = drawings.find((d) => d.id === activeDrawingId);
 
@@ -286,6 +289,18 @@ export function DrawingWorkspace({
       });
     return () => { cancelled = true; };
   }, [estimateId, activeDrawingId, activeDrawing?.parseStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sinh thumbnail từ scene (1 lần/bản vẽ) khi bản vẽ chưa có → thay placeholder
+  // chữ cái ở card home. Chạy nền, lỗi bỏ qua (không chặn UI).
+  useEffect(() => {
+    if (sceneStatus !== "ready" || !scene || !activeDrawingId) return;
+    if (activeDrawing?.thumbnail || thumbedDrawings.current.has(activeDrawingId)) return;
+    thumbedDrawings.current.add(activeDrawingId);
+    const dataUrl = renderSceneThumbnail(scene);
+    if (!dataUrl) return;
+    // 1 lần/phiên: lỗi (mạng/ảnh quá lớn) thì thôi, tránh spam POST 400.
+    api.saveDrawingThumbnail(estimateId, activeDrawingId, dataUrl).catch(() => {});
+  }, [sceneStatus, scene, activeDrawingId, activeDrawing?.thumbnail, estimateId]);
 
   // Per-drawing calibration persisted in localStorage.
   // Discard stale auto entries with factor 1 ("đơn vị bản vẽ") saved by the old

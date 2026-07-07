@@ -491,6 +491,13 @@ export const api = {
       `/estimates/${estimateId}/drawings/${drawingId}/scene`
     ),
 
+  // Lưu thumbnail (data-URI ảnh render từ scene) → hiện trên card home.
+  saveDrawingThumbnail: (estimateId: string, drawingId: string, dataUrl: string) =>
+    request<{ ok: true }>(
+      `/estimates/${estimateId}/drawings/${drawingId}/thumbnail`,
+      { method: "PATCH", body: { dataUrl } }
+    ),
+
   detectDrawingObjects: (estimateId: string, drawingId: string) =>
     request<{ drawingId: string; objectCount: number; objects: DrawingObject[] }>(
       `/estimates/${estimateId}/drawings/${drawingId}/detect`,
