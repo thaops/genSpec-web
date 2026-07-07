@@ -425,8 +425,23 @@ export default function WorkbookEditor({
 
         const raw = wb.save() as any;
         if (!raw?.sheets) return;
-        // Persist workbook-level styles in first sheet so they survive save/load cycle
         const sheetKeys = Object.keys(raw.sheets);
+        // ROOT-CAUSE reload mất màu: wb.save() đưa cell.s về ID trỏ registry raw.styles;
+        // nếu bản Univer này drop/không round-trip raw.styles thì cellData còn ID CHẾT
+        // → reload không có gì render. Khắc phục: INLINE style thẳng vào từng cell.s
+        // (self-contained), không phụ thuộc registry sống sót qua save/load.
+        const styleMap: Record<string, any> = raw.styles ?? {};
+        for (const key of sheetKeys) {
+          const cd = raw.sheets[key]?.cellData as Record<string, Record<string, any>> | undefined;
+          if (!cd) continue;
+          for (const cols of Object.values(cd)) {
+            for (const cell of Object.values(cols)) {
+              const sid = (cell as any)?.s;
+              if (typeof sid === "string" && styleMap[sid]) (cell as any).s = styleMap[sid];
+            }
+          }
+        }
+        // Giữ thêm _styles trên sheet[0] cho tương thích ngược (không còn là đường sống duy nhất).
         if (sheetKeys.length > 0 && raw.styles && Object.keys(raw.styles).length > 0) {
           raw.sheets[sheetKeys[0]]._styles = raw.styles;
         }
