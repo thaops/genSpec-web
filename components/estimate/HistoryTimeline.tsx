@@ -21,7 +21,8 @@ function Detail({ change }: { change: PatchChange }) {
   let refDisplay = change.path || "";
   
   if (isCellUpdate) {
-    refDisplay = `Sheet "${change.sheetId}" · Ô ${change.cell}`;
+    // Không lộ sheet-ID kỹ thuật (vd "sheet-1783405610571-0") — QS chỉ cần ô nào.
+    refDisplay = `Ô ${change.cell}`;
   } else if (change.entityId) {
     refDisplay = `${change.path} (${change.entityId})`;
   }
