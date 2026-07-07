@@ -88,6 +88,11 @@ export interface AgentHandle {
   injectProposal: (proposal: CopilotProposal, displayText: string) => string;
   /** Undo the patch created by an applied AI message (per-message undo logic) */
   undoPatch: (patchId: string) => void;
+  /** Hiện indicator "đang xử lý" (pulse + text) NGAY khi bắt đầu tác vụ engine
+   *  (POST không stream) để chat thể hiện rõ đang chạy. Nhận 1 chuỗi, hoặc MẢNG
+   *  giai đoạn — indicator tự chạy qua từng giai đoạn (~4s/bước) tạo cảm giác
+   *  streaming. Trả hàm dừng — gọi khi xong. */
+  beginWorking: (workingText: string | string[]) => () => void;
 }
 
 /** Snapshot of an applied proposal for the onActionsApplied callback. */
@@ -1293,6 +1298,27 @@ export function AgentConsole({
         };
         setThread((prev) => [...prev, full]);
         setShowHistory(false);
+      },
+      beginWorking: (workingText: string | string[]) => {
+        const stages = Array.isArray(workingText) ? workingText : [workingText];
+        setShowHistory(false);
+        let i = 0;
+        setDriveStatus(stages[0]);
+        // Chạy qua từng giai đoạn ~4s/bước, dừng ở bước cuối (POST không stream
+        // nên đây là cách cho chat có chuyển động "đang chạy").
+        const timer =
+          stages.length > 1
+            ? setInterval(() => {
+                if (i < stages.length - 1) {
+                  i += 1;
+                  setDriveStatus(stages[i]);
+                }
+              }, 4000)
+            : null;
+        return () => {
+          if (timer) clearInterval(timer);
+          setDriveStatus((cur) => (stages.includes(cur ?? "") ? null : cur));
+        };
       },
       injectProposal: (proposal, displayText) => {
         const ts = new Date().toISOString();

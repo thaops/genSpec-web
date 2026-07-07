@@ -623,6 +623,14 @@ export default function EstimateEditorPage() {
     const displayText = `⚡ Bóc khối lượng toàn bộ bản vẽ${drawingName ? ` ${drawingName}` : ""}`;
     const label = "Bóc khối lượng (máy tính)";
     setAgentTask({ label, step: "Đang đo hình học…", status: "running" });
+    // Indicator trong chat NGAY khi bấm — engine là POST không stream nên nếu
+    // không có cái này chat sẽ im lặng suốt lúc đo + tra giá web (~30-60s).
+    const stopWorking = copilotRef.current?.beginWorking([
+      `⚡ Đang đo hình học bản vẽ${drawingName ? ` ${drawingName}` : ""}…`,
+      `Đang tra mã hiệu định mức cho từng công tác…`,
+      `Đang tra đơn giá thị trường trên web (grounded)…`,
+      `Đang tổng hợp & ghi bảng khối lượng…`,
+    ]);
     // Engine is fast — the pill is the primary feedback; the JobCenter entry
     // exists for history only (done almost immediately).
     const job = addJob({
@@ -646,6 +654,7 @@ export default function EstimateEditorPage() {
       // từng ô và tự chuyển sheet khi ghi sang sheet khác (cảm giác "đang làm").
       // KHÔNG chạy tour thủ công ở đây — nó sẽ giật active sheet khỏi chỗ agent
       // đang gõ, làm mất hiệu ứng.
+      stopWorking?.(); // tắt indicator "đang bóc" ngay trước khi hiện proposal
       const proposalMsgId = copilotRef.current?.injectProposal(proposal, displayText);
       void sheetIds;
       updateJob(job.id, {
@@ -663,6 +672,7 @@ export default function EstimateEditorPage() {
         proposalMsgId,
       });
     } catch (err) {
+      stopWorking?.();
       const msg = (err as ApiError).message;
       updateJob(job.id, { status: "failed", message: msg, durationMs: Date.now() - start });
       setAgentTask({ label, step: msg, status: "error" });
@@ -701,6 +711,12 @@ export default function EstimateEditorPage() {
     setSplitMode(true);
     setExplorerCollapsed(true);
     const label = "Bóc toàn bộ dự án";
+    const stopWorking = copilotRef.current?.beginWorking([
+      `⚡ Đang bóc toàn bộ dự án (${ready.length} bản vẽ)…`,
+      `Đang đo hình học từng bản vẽ…`,
+      `Đang tra mã định mức + đơn giá thị trường…`,
+      `Đang tổng hợp bảng khối lượng…`,
+    ]);
     const order = ["KT", "KC", "DIEN", "NUOC", "KHAC"];
     const discLabel: Record<string, string> = { KT: "KT", KC: "KC", DIEN: "Điện", NUOC: "Nước", KHAC: "Khác" };
     const sorted = [...ready].sort(
@@ -748,6 +764,7 @@ export default function EstimateEditorPage() {
         errors.push(`${dr.name}: ${(err as ApiError).message}`);
       }
     }
+    stopWorking?.();
     const summary = `${doneCount}/${sorted.length} bản vẽ · ${totalActions} thay đổi${errors.length ? ` · ${errors.length} lỗi` : ""}`;
     updateJob(job.id, {
       status: errors.length && doneCount === 0 ? "failed" : "done",
