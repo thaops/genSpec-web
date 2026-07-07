@@ -177,11 +177,16 @@ export default function WorkbookEditor({
     if (!wb) return;
     const prevDriving = drivingRef.current;
     drivingRef.current = true;
+    // Nhớ sheet đang active để khôi phục sau (phải KÍCH HOẠT từng sheet mới tô
+    // được — set-style trên sheet chưa active KHÔNG render, giống flashCell phải
+    // getSheet()→setActiveSheet trước).
+    const prevActiveId = wb.getActiveSheet?.()?.getSheetId?.();
     try {
       for (const s of styledSheetsRef.current) {
         if (onlySheetId && s.id !== onlySheetId) continue;
         const ws = wb.getSheetBySheetId?.(s.id);
         if (!ws) continue;
+        try { wb.setActiveSheet?.(ws); } catch (_) {}
         const cd = (s.data?.cellData ?? {}) as Record<string, Record<string, any>>;
         for (const [rStr, cols] of Object.entries(cd)) {
           for (const [cStr, cell] of Object.entries(cols)) {
@@ -197,6 +202,11 @@ export default function WorkbookEditor({
             } catch (_) {}
           }
         }
+      }
+      // Khôi phục sheet active ban đầu.
+      if (prevActiveId) {
+        const back = wb.getSheetBySheetId?.(prevActiveId);
+        if (back) try { wb.setActiveSheet?.(back); } catch (_) {}
       }
     } catch (e) {
       console.warn("[WorkbookEditor] applyInlineStyles failed", e);
