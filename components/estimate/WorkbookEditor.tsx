@@ -391,6 +391,11 @@ export default function WorkbookEditor({
       styledSheetsRef.current = workbookData.sheets ?? [];
       collectedStylesRef.current = styleRegistry;
       applyInlineStyles();
+      // Trên COLD RELOAD (F5) Univer đôi khi hoàn tất render sheet SAU init → lần
+      // tô đầu hụt (range chưa sẵn). Tô lại sau vài nhịp để chắc màu/nền dính.
+      requestAnimationFrame(() => { if (!destroyed) applyInlineStyles(); });
+      setTimeout(() => { if (!destroyed) applyInlineStyles(); }, 250);
+      setTimeout(() => { if (!destroyed) applyInlineStyles(); }, 800);
 
       // Highlight cells that changed vs previous Univer snapshot (AI edit animation)
       const prevSheets = lastSheetsRef.current;
