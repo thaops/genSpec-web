@@ -336,9 +336,21 @@ export default function EstimateEditorPage() {
     if (!estimate) return false;
     try {
       const res = await api.applyActions(estimate.id, actions, "manual");
+      
+      const oldSheets = estimate.sheets ?? [];
+      const newSheets = res.estimate.sheets ?? [];
+      const oldSheetKeys = oldSheets.map((s) => `${s.id}:${s.name}`).join(",");
+      const newSheetKeys = newSheets.map((s) => `${s.id}:${s.name}`).join(",");
+      const hasStructuralChange = oldSheetKeys !== newSheetKeys;
+      const hasFormatChange = actions.some((a) => a.type === "format_sheet");
+
       setEstimate(res.estimate);
       if (res.warnings?.length) {
         toast.error(t("copilot.failed"), res.warnings.join(", "));
+      }
+
+      if (hasStructuralChange || hasFormatChange) {
+        setWorkbookReinitKey((k) => k + 1);
       }
       return true;
     } catch (err) {

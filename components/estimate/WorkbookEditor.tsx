@@ -452,7 +452,10 @@ export default function WorkbookEditor({
         // nếu bản Univer này drop/không round-trip raw.styles thì cellData còn ID CHẾT
         // → reload không có gì render. Khắc phục: INLINE style thẳng vào từng cell.s
         // (self-contained), không phụ thuộc registry sống sót qua save/load.
-        const styleMap: Record<string, any> = raw.styles ?? {};
+        const styleMap: Record<string, any> = {
+          ...collectedStylesRef.current,
+          ...(raw.styles ?? {}),
+        };
         for (const key of sheetKeys) {
           const cd = raw.sheets[key]?.cellData as Record<string, Record<string, any>> | undefined;
           if (!cd) continue;
