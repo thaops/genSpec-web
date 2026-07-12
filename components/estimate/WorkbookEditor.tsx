@@ -320,7 +320,16 @@ export default function WorkbookEditor({
           out[r] = {};
           for (const [c, cell] of Object.entries(cols)) {
             const st = (cell as any)?.s;
-            out[r][c] = st && typeof st === "object" ? { ...cell, s: internStyle(st) } : cell;
+            if (st && typeof st === "object") {
+              out[r][c] = { ...cell, s: internStyle(st) };
+            } else if (typeof st === "string" && styleRegistry[st]) {
+              out[r][c] = cell;
+            } else if (typeof st === "string") {
+              const { s: _dead, ...rest } = cell as any;
+              out[r][c] = rest;
+            } else {
+              out[r][c] = cell;
+            }
           }
         }
         return out;
@@ -448,27 +457,28 @@ export default function WorkbookEditor({
         const raw = wb.save() as any;
         if (!raw?.sheets) return;
         const sheetKeys = Object.keys(raw.sheets);
-        // ROOT-CAUSE reload mất màu: wb.save() đưa cell.s về ID trỏ registry raw.styles;
-        // nếu bản Univer này drop/không round-trip raw.styles thì cellData còn ID CHẾT
-        // → reload không có gì render. Khắc phục: INLINE style thẳng vào từng cell.s
-        // (self-contained), không phụ thuộc registry sống sót qua save/load.
-        const styleMap: Record<string, any> = {
-          ...collectedStylesRef.current,
-          ...(raw.styles ?? {}),
-        };
+        if (raw.styles && typeof raw.styles === "object") {
+          Object.assign(collectedStylesRef.current, raw.styles);
+        }
+        const styleMap = collectedStylesRef.current;
         for (const key of sheetKeys) {
           const cd = raw.sheets[key]?.cellData as Record<string, Record<string, any>> | undefined;
           if (!cd) continue;
-          for (const cols of Object.values(cd)) {
-            for (const cell of Object.values(cols)) {
+          for (const [rk, cols] of Object.entries(cd)) {
+            for (const [ck, cell] of Object.entries(cols)) {
               const sid = (cell as any)?.s;
-              if (typeof sid === "string" && styleMap[sid]) (cell as any).s = styleMap[sid];
+              if (typeof sid === "string") {
+                if (styleMap[sid]) {
+                  (cell as any).s = styleMap[sid];
+                } else {
+                  delete (cell as any).s;
+                }
+              }
             }
           }
         }
-        // Giữ thêm _styles trên sheet[0] cho tương thích ngược (không còn là đường sống duy nhất).
-        if (sheetKeys.length > 0 && raw.styles && Object.keys(raw.styles).length > 0) {
-          raw.sheets[sheetKeys[0]]._styles = raw.styles;
+        if (sheetKeys.length > 0 && Object.keys(styleMap).length > 0) {
+          raw.sheets[sheetKeys[0]]._styles = { ...styleMap };
         }
         const updated: Sheet[] = sheetKeys.map((key) => {
           const s = raw.sheets[key];
@@ -564,15 +574,19 @@ export default function WorkbookEditor({
       },
       endDrive: () => {
         drivingRef.current = false;
-        // Resync the change hash so the debounced save doesn't re-post AI writes
         const wb = univerAPIRef.current?.getActiveWorkbook?.();
         const raw = wb?.save?.() as any;
         if (raw?.sheets) {
+          if (raw.styles && typeof raw.styles === "object") {
+            Object.assign(collectedStylesRef.current, raw.styles);
+          }
           const updated: Sheet[] = Object.keys(raw.sheets).map((key) => {
             const s = raw.sheets[key];
             return { id: s.id || key, name: s.name || "Sheet", data: s };
           });
-          lastCellHashRef.current = JSON.stringify(updated.map((s) => s.data?.cellData ?? {}));
+          lastCellHashRef.current = JSON.stringify(
+            updated.map((s) => [s.data?.cellData ?? {}, (s.data as any)?._styles ?? null]),
+          );
           lastSheetsRef.current = updated;
         }
       },
