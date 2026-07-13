@@ -208,15 +208,24 @@ export function EditorTopBar({
         <Button
           size="sm"
           variant="secondary"
-          onClick={() => {
-            if (onExportTHDT) setExportMenuOpen((v) => !v);
-            else onExport();
-          }}
+          onClick={() => onExport()}
           loading={exporting}
           leftIcon={<DownloadIcon className="h-4 w-4" />}
         >
           {exporting ? t("editor.exporting") : t("editor.export")}
-          {onExportTHDT && <ChevronDown className="ml-1 h-3.5 w-3.5" />}
+          {onExportTHDT && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                setExportMenuOpen((v) => !v);
+              }}
+              className="ml-1 inline-flex cursor-pointer rounded p-0.5 hover:bg-black/10"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </span>
+          )}
         </Button>
         {exportMenuOpen && onExportTHDT && (
           <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 py-1 shadow-xl">

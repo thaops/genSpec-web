@@ -461,6 +461,17 @@ export default function WorkbookEditor({
           Object.assign(collectedStylesRef.current, raw.styles);
         }
         const styleMap = collectedStylesRef.current;
+        // Snapshot style cũ (dạng object) theo key sheet/row/col để khôi phục khi
+        // Univer trả về style-ID không resolve được — tránh mất style qua auto-save.
+        const prevSheets = lastSheetsRef.current ?? [];
+        const prevStyleAt = (key: string, rk: string, ck: string): any => {
+          for (const ps of prevSheets) {
+            const pcd = (ps as any)?.data?.cellData;
+            const pcell = pcd?.[rk]?.[ck];
+            if (pcell && pcell.s && typeof pcell.s === "object") return pcell.s;
+          }
+          return null;
+        };
         for (const key of sheetKeys) {
           const cd = raw.sheets[key]?.cellData as Record<string, Record<string, any>> | undefined;
           if (!cd) continue;
@@ -471,7 +482,10 @@ export default function WorkbookEditor({
                 if (styleMap[sid]) {
                   (cell as any).s = styleMap[sid];
                 } else {
-                  delete (cell as any).s;
+                  // ID không tra được → GIỮ style cũ thay vì xoá (bug mất style khi reload)
+                  const prev = prevStyleAt(key, rk, ck);
+                  if (prev) (cell as any).s = prev;
+                  else delete (cell as any).s;
                 }
               }
             }
