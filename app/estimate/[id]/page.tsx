@@ -7,6 +7,8 @@ import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, Drawi
 import { api, ApiError, exportTHDT, runTakeoffEngine, triggerDownload } from "@/lib/api";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
+import { useMediaQuery } from "@/lib/hooks";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { useToast } from "@/components/ui/Toast";
 import { Button, Spinner } from "@/components/ui/Button";
@@ -34,7 +36,7 @@ import type { DrawingViewportInfo, EngineTakeoffPayload } from "@/components/dra
 import { DEFAULT_TAKEOFF_ASSUMPTIONS, loadTakeoffAssumptions } from "@/components/drawing/TakeoffAssumptions";
 import { SplitView } from "@/components/drawing/SplitView";
 import { PARSE_POLL_MS, isParsing } from "@/lib/drawing/parseProgress";
-import { AlertTriangle, BarChart3 } from "lucide-react";
+import { AlertTriangle, BarChart3, X } from "lucide-react";
 import type { DrawingObjectType } from "@/lib/types";
 
 const OBJECT_TYPE_VI: Partial<Record<DrawingObjectType, string>> = {
@@ -103,6 +105,9 @@ export default function EstimateEditorPage() {
   const [selectedDrawingObject, setSelectedDrawingObject] = useState<DrawingObject | undefined>(undefined);
   const [drawingViewport, setDrawingViewport] = useState<DrawingViewportInfo | undefined>(undefined);
   const [splitMode, setSplitMode] = useState(false);
+  // P2 responsive: split cạnh nhau chỉ hợp màn rộng ≥1440px. Laptop (<1440) dùng
+  // tab Bản vẽ↔Bảng full-width thay vì ép 2 pane + agent chật.
+  const canSplit = useMediaQuery("(min-width: 1440px)");
   // BOQ → drawing focus request (token parsed from the selected workbook row)
   const [drawingFocus, setDrawingFocus] = useState<DrawingFocusRequest | null>(null);
   const [agentWidth, setAgentWidth] = useState(380);
@@ -113,6 +118,8 @@ export default function EstimateEditorPage() {
   const [aiEdits, setAiEdits] = useState<Map<string, AiCellEdit>>(new Map());
   // Cell key the user closed the explain popover for (re-shows on reselect)
   const [explainDismissedKey, setExplainDismissedKey] = useState<string | null>(null);
+  // P5 giảm nag: banner nhận diện sheet chỉ hiện 1 lần/sheet (dismiss hoặc xác nhận → tắt hẳn)
+  const [dismissedSheetBanners, setDismissedSheetBanners] = useState<Set<string>>(new Set());
   const agentDrag = useRef({ active: false, startX: 0, startW: 0, curW: 0 });
   const copilotRef = useRef<AgentHandle>(null);
   const workbookDriverRef = useRef<WorkbookDriver | null>(null);
@@ -894,7 +901,8 @@ export default function EstimateEditorPage() {
             const sheetType = currentSheet?.metadata?.sheetType || "unknown";
             const confidence = currentSheet?.metadata?.confidence ?? 0;
             const showWarning = sheetType !== "unknown" && confidence > 0 && confidence < 0.9;
-            if (!showWarning) return null;
+            // Chỉ hỏi 1 lần/sheet: đã dismiss hoặc đã xác nhận (confidence=1) → im.
+            if (!showWarning || dismissedSheetBanners.has(activeSheetId)) return null;
             return (
               <div className="bg-zinc-900 border-b border-amber-500/20 px-4 py-2 flex items-center justify-between text-xs text-amber-300 shrink-0">
                 <div className="flex items-center gap-2">
@@ -920,6 +928,13 @@ export default function EstimateEditorPage() {
                     <option value="material">Bảng Giá vật tư</option>
                     <option value="unknown">Không xác định</option>
                   </select>
+                  <button
+                    onClick={() => setDismissedSheetBanners((prev) => new Set(prev).add(activeSheetId))}
+                    title="Ẩn — không hỏi lại cho sheet này"
+                    className="rounded p-1 text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-200"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
             );
@@ -1065,7 +1080,34 @@ export default function EstimateEditorPage() {
               onDismiss={() => setAgentTask(null)}
             />
           )}
-          {viewMode === "drawing" && splitMode ? (
+          {/* Tab Bản vẽ↔Bảng — chỉ hiện khi muốn xem cả 2 nhưng màn hẹp (<1440px).
+              Full-width từng cái thay vì ép split 3 cột chật. */}
+          {splitMode && !canSplit && viewMode !== "insights" && (
+            <div className="flex shrink-0 items-center gap-1 border-b border-zinc-800 bg-zinc-900/60 px-2 py-1">
+              <button
+                type="button"
+                onClick={() => setViewMode("drawing")}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                  viewMode === "drawing" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-zinc-200"
+                )}
+              >
+                Bản vẽ
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("workbook")}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                  viewMode === "workbook" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-zinc-200"
+                )}
+              >
+                Bảng dự toán
+              </button>
+              <span className="ml-2 text-[10px] text-zinc-600">Màn rộng hơn sẽ hiện cạnh nhau</span>
+            </div>
+          )}
+          {viewMode === "drawing" && splitMode && canSplit ? (
             <SplitView
               left={workbookContent}
               right={drawingContent}

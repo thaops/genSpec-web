@@ -54,6 +54,19 @@ export function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+// Match a CSS media query reactively (SSR-safe: false until mounted).
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
+
 // Typewriter effect — gradually reveals `text`. Returns the partial string and
 // a `done` flag. When `enabled` is false (or reduced motion), reveals instantly.
 export function useTypewriter(

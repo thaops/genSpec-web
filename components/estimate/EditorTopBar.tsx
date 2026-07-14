@@ -9,7 +9,7 @@ import { Button, Spinner } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
-import { ChevronDown, Coins, LayoutPanelLeft, Upload } from "lucide-react";
+import { ChevronDown, Coins, LayoutPanelLeft, MoreHorizontal, Upload } from "lucide-react";
 import { NotificationBell } from "@/components/ui/NotificationCenter";
 
 interface Props {
@@ -45,9 +45,11 @@ export function EditorTopBar({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(estimate.name);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -59,6 +61,15 @@ export function EditorTopBar({
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [exportMenuOpen]);
+
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!moreMenuRef.current?.contains(e.target as Node)) setMoreMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [moreMenuOpen]);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -133,23 +144,6 @@ export function EditorTopBar({
         </span>
       </div>
 
-      {/* Split view toggle */}
-      {onSplitModeChange && (
-        <button
-          onClick={() => onSplitModeChange(!splitMode)}
-          title="Toggle split view (Spreadsheet | Drawing)"
-          className={cn(
-            "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
-            splitMode
-              ? "bg-blue-600 text-white"
-              : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
-          )}
-        >
-          <LayoutPanelLeft className="h-3.5 w-3.5" />
-          <span className="hidden md:inline">Split</span>
-        </button>
-      )}
-
       {/* Save-state indicator */}
       {saveState === "dirty" && (
         <span className="flex shrink-0 items-center gap-1.5 text-xs text-amber-400/80">
@@ -168,28 +162,17 @@ export function EditorTopBar({
       )}
 
       {onImportExcel && (
-        <>
-          <input
-            ref={importFileRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) onImportExcel(f);
-            }}
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => importFileRef.current?.click()}
-            loading={importing}
-            leftIcon={<Upload className="h-4 w-4" />}
-          >
-            {importing ? t("editor.importing") : t("editor.importExcel")}
-          </Button>
-        </>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) onImportExcel(f);
+          }}
+        />
       )}
 
       {onReprice && (
@@ -249,6 +232,43 @@ export function EditorTopBar({
             >
               Xuất THDT
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Overflow — gom hành động phụ (bớt nút ở hàng chính) */}
+      <div ref={moreMenuRef} className="relative">
+        <button
+          type="button"
+          onClick={() => setMoreMenuOpen((v) => !v)}
+          title="Thêm"
+          className="flex items-center rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+        {moreMenuOpen && (
+          <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 py-1 shadow-xl">
+            {onSplitModeChange && (
+              <button
+                type="button"
+                onClick={() => { onSplitModeChange(!splitMode); setMoreMenuOpen(false); }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+              >
+                <LayoutPanelLeft className="h-4 w-4 text-zinc-400" />
+                {splitMode ? "Tắt xem cạnh nhau" : "Xem bản vẽ + bảng"}
+              </button>
+            )}
+            {onImportExcel && (
+              <button
+                type="button"
+                onClick={() => { importFileRef.current?.click(); setMoreMenuOpen(false); }}
+                disabled={importing}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50"
+              >
+                <Upload className="h-4 w-4 text-zinc-400" />
+                {importing ? t("editor.importing") : t("editor.importExcel")}
+              </button>
+            )}
           </div>
         )}
       </div>

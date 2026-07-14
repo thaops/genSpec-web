@@ -73,8 +73,9 @@ export function ProposalCard({
   onViewActivity,
 }: Props) {
   const { t } = useT();
-  const [showDiffs, setShowDiffs] = useState(false);
-  const [showWhy, setShowWhy] = useState(false);
+  // P1 summary-first: mọi chi tiết (thinking/validation/confidence/trace/diffs/sources)
+  // gộp sau MỘT toggle. Mặc định chỉ hiện: kết luận + số + confidence + cảnh báo AI + 2 nút.
+  const [showDetail, setShowDetail] = useState(false);
   const { shown, done } = useTypewriter(proposal.message, { enabled: fresh });
 
   const preview = proposal.preview;
@@ -83,6 +84,16 @@ export function ProposalCard({
   const sources = proposal.sources ?? [];
   const diffs = preview?.diffs ?? [];
   const isDone = state === "applied" || state === "discarded";
+
+  // Tín hiệu trust giữ Ở SUMMARY (không ẩn): giá toàn bộ là AI ước lượng.
+  const allAiSources = sources.length > 0 && sources.every((s) => classifySource(s) === "ai");
+  const hasDetail =
+    (proposal.thinking?.length ?? 0) > 0 ||
+    !!proposal.validation ||
+    !!proposal.confidence ||
+    !!proposal.trace ||
+    diffs.length > 0 ||
+    sources.length > 0;
 
   return (
     <div className="animate-slide-up flex justify-start">
@@ -120,62 +131,12 @@ export function ProposalCard({
           {proposal.validation && <ScoreBadge score={proposal.validation.score} />}
         </div>
 
-        {proposal.thinking?.length > 0 && (
-          <ThinkingTrace
-            steps={proposal.thinking}
-            revealed={false}
-            defaultOpen={false}
-          />
-        )}
-
+        {/* KẾT LUẬN (1 dòng) */}
         <p className="whitespace-pre-line text-zinc-200">
           {fresh && !done ? shown : proposal.message}
         </p>
 
-        {/* Validation self-check (status + benchmark) — shown BEFORE apply */}
-        {proposal.validation && (
-          <div className="mt-2.5">
-            <ValidationPanel report={proposal.validation} compact />
-          </div>
-        )}
-
-        {/* Confidence with basis */}
-        {proposal.confidence && (
-          <div className="mt-2.5">
-            <ConfidenceCard confidence={proposal.confidence} />
-          </div>
-        )}
-
-        {/* "Why this result?" — full self-critique: findings + consistency */}
-        {proposal.validation &&
-          (proposal.validation.findings.length > 0 ||
-            proposal.validation.consistency.length > 0) && (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={() => setShowWhy((v) => !v)}
-                className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 transition-colors hover:text-accent-300"
-              >
-                <ChevronDownIcon
-                  className={cn(
-                    "h-3 w-3 transition-transform",
-                    showWhy ? "rotate-180" : "rotate-0"
-                  )}
-                />
-                {showWhy ? t("copilot.whyHide") : t("copilot.whyShow")}
-              </button>
-              {showWhy && (
-                <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
-                  <ValidationPanel report={proposal.validation} />
-                </div>
-              )}
-            </div>
-          )}
-
-        {/* Trace — quantity derivation + price sources, BEFORE applying */}
-        <TracePanel trace={proposal.trace} />
-
-        {/* Count chips */}
+        {/* SỐ liệu tóm tắt — count chips + cost delta (giữ ở summary) */}
         {preview && preview.counts?.length > 0 && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {preview.counts.map((c, i) => (
@@ -183,8 +144,6 @@ export function ProposalCard({
             ))}
           </div>
         )}
-
-        {/* Cost delta — ẩn khi delta=0 (giá đang ẩn → "+0đ" gây hiểu nhầm). */}
         {preview && delta !== 0 && (
           <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
             <span className="text-[11px] uppercase tracking-wide text-zinc-500">
@@ -193,11 +152,7 @@ export function ProposalCard({
             <span
               className={cn(
                 "ml-auto font-mono text-sm font-semibold tabular-nums",
-                delta === 0
-                  ? "text-zinc-400"
-                  : deltaUp
-                    ? "text-emerald-400"
-                    : "text-rose-400"
+                deltaUp ? "text-emerald-400" : "text-rose-400"
               )}
             >
               {deltaUp ? "+" : "−"}
@@ -206,95 +161,11 @@ export function ProposalCard({
           </div>
         )}
 
-        {/* Diff list */}
-        {diffs.length > 0 && (
-          <div className="mt-2">
-            <button
-              type="button"
-              onClick={() => setShowDiffs((v) => !v)}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 transition-colors hover:text-accent-300"
-            >
-              <ChevronDownIcon
-                className={cn(
-                  "h-3 w-3 transition-transform",
-                  showDiffs ? "rotate-180" : "rotate-0"
-                )}
-              />
-              {showDiffs
-                ? t("copilot.hideDiffs")
-                : t("copilot.viewDiffs", { count: diffs.length })}
-            </button>
-            {showDiffs && (
-              <ul className="mt-1.5 space-y-1 rounded-lg border border-zinc-800 bg-zinc-950/50 p-2 font-mono text-[11px]">
-                {diffs.map((d, i) => {
-                  const isCellUpdate = d.ref.includes("->");
-                  let refDisplay = d.ref;
-                  if (isCellUpdate) {
-                    const parts = d.ref.split("->").map((p) => p.trim());
-                    if (parts.length === 2) {
-                      refDisplay = `Ô ${parts[1]}`;
-                    }
-                  }
-                  return (
-                    <li key={i} className="flex flex-wrap items-baseline gap-1.5">
-                      <span className="text-accent-300">{refDisplay}</span>
-                      <span className="text-zinc-600">·</span>
-                      <span className="text-zinc-500">{d.field}</span>
-                      <span className="text-rose-300/90 line-through">{d.from}</span>
-                      <span className="text-zinc-600">→</span>
-                      <span className="text-emerald-300">{d.to}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* Sources */}
-        {sources.length > 0 && (
-          <div className="mt-2.5 border-t border-zinc-800 pt-2">
-            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-              {t("copilot.sources")}
-            </p>
-            {sources.every((s) => classifySource(s) === "ai") && (
-              <p className="mb-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
-                ⚠ Toàn bộ giá là AI ước lượng — cần kiểm chứng trước khi dùng
-              </p>
-            )}
-            <ul className="space-y-0.5">
-              {sources.map((s, i) => {
-                const badge = SOURCE_BADGE[classifySource(s)];
-                return (
-                  <li key={i} className="flex items-center gap-1.5 text-[11px]">
-                    <span className="min-w-0 truncate">
-                      {s.uri ? (
-                        <a
-                          href={s.uri}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-accent-300 hover:underline"
-                          title={s.uri}
-                        >
-                          {s.title || s.uri}
-                        </a>
-                      ) : (
-                        <span className="text-zinc-400">{s.title}</span>
-                      )}
-                    </span>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full border px-1.5 py-px text-[9px] font-medium",
-                        badge.cls
-                      )}
-                    >
-                      {badge.label}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+        {/* TRUST — estimated CẢNH BÁO (grounded im lặng). Giữ ở summary, KHÔNG ẩn. */}
+        {allAiSources && (
+          <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
+            ⚠ Giá là AI ước lượng — cần kiểm chứng
+          </p>
         )}
 
         {/* Actions / result */}
@@ -339,6 +210,86 @@ export function ProposalCard({
           <p className="mt-3 border-t border-zinc-800 pt-2 text-[12px] text-zinc-500">
             {t("copilot.discarded")}
           </p>
+        )}
+
+        {/* MỘT toggle chi tiết — gộp: thinking · kiểm tra · độ tin · trace · thay đổi · nguồn */}
+        {hasDetail && (
+          <div className="mt-2 border-t border-zinc-800 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowDetail((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 transition-colors hover:text-accent-300"
+            >
+              <ChevronDownIcon
+                className={cn("h-3 w-3 transition-transform", showDetail ? "rotate-180" : "rotate-0")}
+              />
+              {showDetail ? "Ẩn chi tiết" : "Chi tiết"}
+            </button>
+
+            {showDetail && (
+              <div className="mt-2 space-y-2.5">
+                {proposal.thinking?.length > 0 && (
+                  <ThinkingTrace steps={proposal.thinking} revealed={false} defaultOpen={false} />
+                )}
+                {proposal.validation && <ValidationPanel report={proposal.validation} />}
+                {proposal.confidence && <ConfidenceCard confidence={proposal.confidence} />}
+                <TracePanel trace={proposal.trace} />
+
+                {/* Thay đổi từng dòng */}
+                {diffs.length > 0 && (
+                  <ul className="space-y-1 rounded-lg border border-zinc-800 bg-zinc-950/50 p-2 font-mono text-[11px]">
+                    {diffs.map((d, i) => {
+                      let refDisplay = d.ref;
+                      if (d.ref.includes("->")) {
+                        const parts = d.ref.split("->").map((p) => p.trim());
+                        if (parts.length === 2) refDisplay = `Ô ${parts[1]}`;
+                      }
+                      return (
+                        <li key={i} className="flex flex-wrap items-baseline gap-1.5">
+                          <span className="text-accent-300">{refDisplay}</span>
+                          <span className="text-zinc-600">·</span>
+                          <span className="text-zinc-500">{d.field}</span>
+                          <span className="text-rose-300/90 line-through">{d.from}</span>
+                          <span className="text-zinc-600">→</span>
+                          <span className="text-emerald-300">{d.to}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {/* Nguồn giá (đầy đủ) */}
+                {sources.length > 0 && (
+                  <div className="border-t border-zinc-800 pt-2">
+                    <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                      {t("copilot.sources")}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {sources.map((s, i) => {
+                        const badge = SOURCE_BADGE[classifySource(s)];
+                        return (
+                          <li key={i} className="flex items-center gap-1.5 text-[11px]">
+                            <span className="min-w-0 truncate">
+                              {s.uri ? (
+                                <a href={s.uri} target="_blank" rel="noreferrer" className="text-accent-300 hover:underline" title={s.uri}>
+                                  {s.title || s.uri}
+                                </a>
+                              ) : (
+                                <span className="text-zinc-400">{s.title}</span>
+                              )}
+                            </span>
+                            <span className={cn("shrink-0 rounded-full border px-1.5 py-px text-[9px] font-medium", badge.cls)}>
+                              {badge.label}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -24,7 +24,7 @@ import {
   loadTakeoffAssumptions,
   DEFAULT_TAKEOFF_ASSUMPTIONS,
 } from "./TakeoffAssumptions";
-import { AlertTriangle, RotateCw, Ruler, Settings2, Sparkles, Zap } from "lucide-react";
+import { AlertTriangle, ChevronDown, RotateCw, Ruler, Settings2, Sparkles, Zap } from "lucide-react";
 import { isStuck, parseElapsedMs, parseStatusLabel } from "@/lib/drawing/parseProgress";
 
 // Quy đổi đơn vị bản vẽ ($INSUNITS) → mét
@@ -197,7 +197,21 @@ export function DrawingWorkspace({
   const [selectedObject, setSelectedObject] = useState<DrawingObject | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [loadingObjects, setLoadingObjects] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  // P4 — 1 dock phải duy nhất: Review / Revision / Inspector loại trừ lẫn nhau
+  // (mở cái này tự đóng cái kia → không còn panel chồng nhau). Giữ API 3 setter cũ.
+  const [rightPanel, setRightPanel] = useState<"none" | "review" | "revision" | "inspector">("none");
+  const inspectorOpen = rightPanel === "inspector";
+  const reviewOpen = rightPanel === "review";
+  const revisionOpen = rightPanel === "revision";
+  const makePanelSetter = (key: "review" | "revision" | "inspector") =>
+    (v: boolean | ((prev: boolean) => boolean)) => {
+      const cur = rightPanel === key;
+      const next = typeof v === "function" ? (v as (p: boolean) => boolean)(cur) : v;
+      setRightPanel(next ? key : "none");
+    };
+  const setInspectorOpen = makePanelSetter("inspector");
+  const setReviewOpen = makePanelSetter("review");
+  const setRevisionOpen = makePanelSetter("revision");
   const [activeTool, setActiveTool] = useState<DrawingTool>("pointer");
   const [viewport, setViewport] = useState({ page: 1, scale: 1.2, scrollX: 0, scrollY: 0 });
   // Unified vector scene (M1) — null while loading / after 404 fallback
@@ -207,8 +221,11 @@ export function DrawingWorkspace({
   const [calibration, setCalibration] = useState<DrawingCalibration | null>(null);
   // Review Queue: per-object approve/reject persisted per drawing
   const [reviewStates, setReviewStates] = useState<ReviewStates>({});
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [revisionOpen, setRevisionOpen] = useState(false);
+  // P3 gom nút: menu "Bóc ▾" (Detect + bóc dự án) và "Xem ▾" (Duyệt/So sánh/Inspector)
+  const [takeoffMenuOpen, setTakeoffMenuOpen] = useState(false);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const takeoffMenuRef = useRef<HTMLDivElement>(null);
+  const viewMenuRef = useRef<HTMLDivElement>(null);
   const [focusObjectId, setFocusObjectId] = useState<string | undefined>(undefined);
   // Full takeoff flow
   const [fullTakeoffRunning, setFullTakeoffRunning] = useState(false);
@@ -216,6 +233,16 @@ export function DrawingWorkspace({
   // Engine takeoff: assumptions popover (first ⚡ per drawing, or via ⚙)
   const [assumpOpen, setAssumpOpen] = useState(false);
   const [fitSignal, setFitSignal] = useState(0);
+  // Đóng menu Bóc/Xem khi click ra ngoài
+  useEffect(() => {
+    if (!takeoffMenuOpen && !viewMenuOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (takeoffMenuOpen && !takeoffMenuRef.current?.contains(e.target as Node)) setTakeoffMenuOpen(false);
+      if (viewMenuOpen && !viewMenuRef.current?.contains(e.target as Node)) setViewMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [takeoffMenuOpen, viewMenuOpen]);
   // Vùng bóc (scope): rect world-coords per drawing, persisted localStorage
   const [scopeRect, setScopeRect] = useState<ScopeRect | null>(null);
   // Calibration gate dialog — holds the detected objects awaiting a decision
@@ -758,92 +785,116 @@ export function DrawingWorkspace({
             </span>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <button
-              onClick={handleDetect}
-              disabled={detecting}
-              className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-50 text-[11px] transition-colors"
-            >
-              {detecting ? <Spinner className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
-              <span>Detect</span>
-            </button>
-            <div className="relative flex items-center gap-0.5">
-              <button
-                onClick={handleFullTakeoff}
-                disabled={!isReady || fullTakeoffRunning || detecting || takeoffBusy}
-                title={scopeRect
-                  ? "Bóc khối lượng các đối tượng trong vùng đã chọn vào sheet 'Khối lượng'"
-                  : "Bóc khối lượng toàn bộ bản vẽ vào sheet 'Khối lượng'"}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white disabled:opacity-50 text-[11px] transition-colors"
-              >
-                {fullTakeoffRunning || takeoffBusy ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-                <span>{takeoffBusy ? "Đang bóc…" : scopeRect ? "Bóc trong vùng" : "Bóc toàn bộ"}</span>
-              </button>
-              {onEngineTakeoff && (
-                <button
-                  onClick={() => setAssumpOpen((v) => !v)}
-                  disabled={!isReady}
-                  title="Chỉnh giả định bóc khối lượng (cao tầng, dày tường, sâu dầm)"
-                  className="flex items-center px-1 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 disabled:opacity-50 transition-colors"
-                >
-                  <Settings2 className="h-3 w-3" />
-                </button>
-              )}
-              {assumpOpen && activeDrawingId && (
-                <TakeoffAssumptionsPopover
-                  drawingId={activeDrawingId}
-                  onRun={(a) => {
-                    setAssumpOpen(false);
-                    void runEngineTakeoff(a);
-                  }}
-                  onClose={() => setAssumpOpen(false)}
-                />
-              )}
-            </div>
-            {onProjectTakeoff && drawings.length >= 2 && (() => {
+            {(() => {
               const readyCount = drawings.filter((d) => !d.parseStatus || d.parseStatus === "ready").length;
-              const pending = drawings.length - readyCount;
-              const allReady = pending === 0;
+              const projPending = drawings.length - readyCount;
+              const canProject = onProjectTakeoff && drawings.length >= 2;
+              const compareDisabled = drawings.filter((d) => d.id !== activeDrawingId && (!d.parseStatus || d.parseStatus === "ready")).length === 0;
+              const viewActive = reviewOpen || revisionOpen || inspectorOpen;
               return (
-                <button
-                  onClick={onProjectTakeoff}
-                  disabled={!allReady || fullTakeoffRunning || detecting || takeoffBusy}
-                  title={allReady
-                    ? "Bóc khối lượng TẤT CẢ bản vẽ trong dự án (mỗi bản theo bộ môn) vào cùng sheet 'Khối lượng'"
-                    : `Đợi ${pending} bản vẽ xử lý xong`}
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-accent-300 [html.light_&]:text-accent-700 disabled:opacity-50 disabled:cursor-not-allowed text-[11px] transition-colors"
-                >
-                  <Zap className="h-3 w-3" />
-                  <span>{allReady ? "Bóc toàn bộ dự án" : `Bóc dự án (đợi ${pending})`}</span>
-                </button>
+                <>
+                  {/* ── PRIMARY: Bóc (1 nút chính + menu tùy chọn) ── */}
+                  <div ref={takeoffMenuRef} className="relative flex items-center gap-0.5">
+                    <button
+                      onClick={handleFullTakeoff}
+                      disabled={!isReady || fullTakeoffRunning || detecting || takeoffBusy}
+                      title={scopeRect
+                        ? "Bóc khối lượng các đối tượng trong vùng đã chọn"
+                        : "Bóc khối lượng toàn bộ bản vẽ"}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-l bg-accent-600 hover:bg-accent-500 text-white disabled:opacity-50 text-[11px] font-medium transition-colors"
+                    >
+                      {fullTakeoffRunning || takeoffBusy ? <Spinner className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
+                      <span>{takeoffBusy ? "Đang bóc…" : scopeRect ? "Bóc trong vùng" : "Bóc toàn bộ"}</span>
+                    </button>
+                    <button
+                      onClick={() => setTakeoffMenuOpen((v) => !v)}
+                      title="Tùy chọn bóc"
+                      className="flex items-center px-1 py-1 rounded-r bg-accent-600 hover:bg-accent-500 text-white transition-colors"
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                    {takeoffMenuOpen && (
+                      <div className="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 py-1 shadow-xl text-[12px]">
+                        <button
+                          onClick={() => { setTakeoffMenuOpen(false); handleDetect(); }}
+                          disabled={detecting}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                        >
+                          <Sparkles className="h-3.5 w-3.5 text-zinc-400" /> Chỉ nhận diện (Detect)
+                        </button>
+                        {canProject && (
+                          <button
+                            onClick={() => { setTakeoffMenuOpen(false); onProjectTakeoff!(); }}
+                            disabled={projPending > 0 || fullTakeoffRunning || detecting || takeoffBusy}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                          >
+                            <Zap className="h-3.5 w-3.5 text-accent-400" />
+                            {projPending > 0 ? `Bóc dự án (đợi ${projPending})` : "Bóc toàn bộ dự án"}
+                          </button>
+                        )}
+                        {onEngineTakeoff && (
+                          <button
+                            onClick={() => { setTakeoffMenuOpen(false); setAssumpOpen(true); }}
+                            disabled={!isReady}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                          >
+                            <Settings2 className="h-3.5 w-3.5 text-zinc-400" /> Giả định bóc (cao tầng, tường…)
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {assumpOpen && activeDrawingId && (
+                      <TakeoffAssumptionsPopover
+                        drawingId={activeDrawingId}
+                        onRun={(a) => { setAssumpOpen(false); void runEngineTakeoff(a); }}
+                        onClose={() => setAssumpOpen(false)}
+                      />
+                    )}
+                  </div>
+
+                  {/* ── Xem (gom Duyệt / So sánh / Inspector) ── */}
+                  <div ref={viewMenuRef} className="relative">
+                    <button
+                      onClick={() => setViewMenuOpen((v) => !v)}
+                      className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors ${
+                        viewActive ? "bg-blue-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                      }`}
+                    >
+                      Xem
+                      {pendingReviewCount > 0 && (
+                        <span className="rounded-full bg-amber-500/80 px-1 text-[9px] font-semibold text-black">{pendingReviewCount}</span>
+                      )}
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                    {viewMenuOpen && (
+                      <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 py-1 shadow-xl text-[12px]">
+                        <button
+                          onClick={() => { setViewMenuOpen(false); setReviewOpen((v) => !v); }}
+                          disabled={objects.length === 0}
+                          className="flex w-full items-center justify-between px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                        >
+                          <span>Duyệt đối tượng</span>
+                          {pendingReviewCount > 0 && <span className="text-amber-400">{pendingReviewCount} chưa xem</span>}
+                        </button>
+                        <button
+                          onClick={() => { setViewMenuOpen(false); setRevisionOpen((v) => !v); }}
+                          disabled={compareDisabled}
+                          className="flex w-full items-center px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                        >
+                          So sánh bản vẽ
+                        </button>
+                        <button
+                          onClick={() => { setViewMenuOpen(false); setInspectorOpen(!inspectorOpen); }}
+                          className="flex w-full items-center px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800"
+                        >
+                          Inspector đối tượng
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
               );
             })()}
-            <button
-              onClick={() => setReviewOpen((v) => !v)}
-              disabled={objects.length === 0}
-              className={`px-2 py-1 rounded text-[11px] transition-colors disabled:opacity-50 ${
-                reviewOpen ? "bg-blue-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-              }`}
-            >
-              Duyệt{pendingReviewCount > 0 ? ` (${pendingReviewCount} chưa xem)` : ""}
-            </button>
-            <button
-              onClick={() => setRevisionOpen((v) => !v)}
-              disabled={drawings.filter((d) => d.id !== activeDrawingId && (!d.parseStatus || d.parseStatus === "ready")).length === 0}
-              title="So sánh với bản vẽ khác — định lượng thay đổi"
-              className={`px-2 py-1 rounded text-[11px] transition-colors disabled:opacity-50 ${
-                revisionOpen ? "bg-blue-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-              }`}
-            >
-              So sánh
-            </button>
-            <button
-              onClick={() => setInspectorOpen(!inspectorOpen)}
-              className={`px-2 py-1 rounded text-[11px] transition-colors ${
-                inspectorOpen ? "bg-blue-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-              }`}
-            >
-              Inspector
-            </button>
           </div>
         </div>
 
