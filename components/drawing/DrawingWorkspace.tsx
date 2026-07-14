@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Drawing, DrawingCalibration, DrawingFocusRequest, DrawingObject, DrawingScene, LayerRule } from "@/lib/types";
+import type { Action, Drawing, DrawingCalibration, DrawingFocusRequest, DrawingObject, DrawingScene, LayerRule } from "@/lib/types";
 import { api, API_URL } from "@/lib/api";
 import { renderSceneThumbnail } from "@/lib/drawing/sceneThumbnail";
 import { PdfViewer } from "./PdfViewer";
@@ -145,6 +145,7 @@ export interface DrawingViewportInfo {
 interface DrawingWorkspaceProps {
   estimateId: string;
   location?: string; // tỉnh dự án — để định giá MEP theo tên
+  onAddToBoq?: (actions: Action[]) => void; // đẩy rebar/MEP thành dòng dự toán
   activeDrawingId?: string;
   onDrawingSelect?: (drawingId: string) => void;
   onObjectSelect?: (obj: DrawingObject) => void;
@@ -179,6 +180,7 @@ interface DrawingWorkspaceProps {
 export function DrawingWorkspace({
   estimateId,
   location,
+  onAddToBoq,
   activeDrawingId,
   onDrawingSelect,
   onObjectSelect,
@@ -1051,6 +1053,7 @@ export function DrawingWorkspace({
           <RebarPanel
             estimateId={estimateId}
             drawingId={activeDrawingId}
+            onAddToBoq={onAddToBoq}
             onClose={() => setRightPanel("none")}
           />
         </div>
@@ -1064,6 +1067,7 @@ export function DrawingWorkspace({
             drawingId={activeDrawingId}
             location={location}
             initialTab={buildingInitialTab}
+            onAddToBoq={onAddToBoq}
             onClose={() => setRightPanel("none")}
           />
         </div>

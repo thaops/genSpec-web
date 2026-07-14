@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { api, type BuildingGraph, type MepRow, type ScopeGapFinding, type SwapImpact } from "@/lib/api";
+import type { Action } from "@/lib/types";
 import { Spinner } from "@/components/ui/Button";
 
 type Tab = "floors" | "mep" | "review" | "swap";
@@ -12,6 +13,7 @@ interface Props {
   drawingId: string;
   location?: string;
   initialTab?: Tab;
+  onAddToBoq?: (actions: Action[]) => void;
   onClose: () => void;
 }
 
@@ -23,7 +25,7 @@ const SEV_CLS: Record<ScopeGapFinding["severity"], string> = {
 const SEV_LABEL: Record<ScopeGapFinding["severity"], string> = { high: "Cao", medium: "TB", low: "Thấp" };
 
 // Building Graph: cây tầng→phòng, MEP takeoff, rà soát thiếu phạm vi.
-export function BuildingPanel({ estimateId, drawingId, location, initialTab = "floors", onClose }: Props) {
+export function BuildingPanel({ estimateId, drawingId, location, initialTab = "floors", onAddToBoq, onClose }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [unit, setUnit] = useState<"mm" | "m">("mm"); // factor cho chiều dài MEP
   const [graph, setGraph] = useState<BuildingGraph | null>(null);
@@ -150,6 +152,25 @@ export function BuildingPanel({ estimateId, drawingId, location, initialTab = "f
                   ))}
                 </tbody>
               </table>
+            )}
+            {mep && mep.length > 0 && onAddToBoq && (
+              <button
+                onClick={() => {
+                  const actions: Action[] = mep.map((r) => ({
+                    type: "upsert_takeoff",
+                    group: r.kind === "length" ? "MEP - Tuyến" : "MEP - Thiết bị",
+                    code: "",
+                    name: r.floor ? `${r.label} (T${r.floor})` : r.label,
+                    unit: r.unit,
+                    quantity: r.quantity,
+                    note: r.priceSource ? `giá: ${r.priceSource}` : "",
+                  }));
+                  onAddToBoq(actions);
+                }}
+                className="mt-3 w-full rounded bg-zinc-800 py-1.5 text-[12px] font-medium text-zinc-200 hover:bg-zinc-700"
+              >
+                ＋ Thêm {mep.length} dòng MEP vào dự toán
+              </button>
             )}
           </>
         )}

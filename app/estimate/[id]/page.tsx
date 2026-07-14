@@ -1022,6 +1022,10 @@ export default function EstimateEditorPage() {
     <DrawingWorkspace
       estimateId={estimate.id}
       location={estimate?.projectInfo?.location}
+      onAddToBoq={async (actions) => {
+        const ok = await apply(actions);
+        if (ok) { toast.success(`Đã thêm ${actions.length} dòng vào dự toán`); setViewMode("workbook"); }
+      }}
       activeDrawingId={activeDrawingId}
       onDrawingSelect={setActiveDrawingId}
       onObjectSelect={handleDrawingObjectSelect}

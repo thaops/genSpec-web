@@ -3,17 +3,19 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { api, type RebarTakeoff, type RebarWeightResult } from "@/lib/api";
+import type { Action } from "@/lib/types";
 import { Spinner } from "@/components/ui/Button";
 
 interface Props {
   estimateId: string;
   drawingId: string;
+  onAddToBoq?: (actions: Action[]) => void;
   onClose: () => void;
 }
 
 // Bóc cốt thép từ callout (%%C=Ø). BE không suy kg (cần chiều dài) → panel cho
 // nhập tổng chiều dài/Ø rồi gọi /rebar/weight ra kg. Không bịa chiều dài.
-export function RebarPanel({ estimateId, drawingId, onClose }: Props) {
+export function RebarPanel({ estimateId, drawingId, onAddToBoq, onClose }: Props) {
   const [data, setData] = useState<RebarTakeoff | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -124,6 +126,26 @@ export function RebarPanel({ estimateId, drawingId, onClose }: Props) {
                 Tổng: <span className="font-mono font-semibold">{weight.totalKg.toLocaleString("vi-VN")} kg</span>
                 <span className="text-emerald-400/70"> (hao hụt ×{weight.wasteFactor})</span>
               </div>
+            )}
+
+            {weight && weight.rows.length > 0 && onAddToBoq && (
+              <button
+                onClick={() => {
+                  const actions: Action[] = weight.rows.map((r) => ({
+                    type: "upsert_takeoff",
+                    group: "Cốt thép",
+                    code: "",
+                    name: `Cốt thép Ø${r.diameter}`,
+                    unit: "kg",
+                    quantity: r.weightKg,
+                    note: `${r.totalLengthM}m × ${r.unitWeightKgM}kg/m${weight.wasteFactor !== 1 ? ` × ${weight.wasteFactor}` : ""} = ${r.weightKg}kg`,
+                  }));
+                  onAddToBoq(actions);
+                }}
+                className="mt-2 w-full rounded bg-zinc-800 py-1.5 text-[12px] font-medium text-zinc-200 hover:bg-zinc-700"
+              >
+                ＋ Thêm {weight.rows.length} dòng thép vào dự toán
+              </button>
             )}
 
             <p className="mt-3 rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-[11px] leading-relaxed text-amber-300/90">
