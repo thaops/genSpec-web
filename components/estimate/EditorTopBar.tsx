@@ -9,7 +9,7 @@ import { Button, Spinner } from "@/components/ui/Button";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ChevronLeftIcon, DownloadIcon, EditIcon } from "@/components/ui/icons";
-import { ChevronDown, Coins, LayoutPanelLeft, MoreHorizontal, Upload } from "lucide-react";
+import { ChevronDown, Coins, LayoutPanelLeft, Maximize2, Minimize2, MoreHorizontal, Upload } from "lucide-react";
 import { NotificationBell } from "@/components/ui/NotificationCenter";
 
 interface Props {
@@ -25,6 +25,8 @@ interface Props {
   saveState?: "idle" | "dirty" | "saving" | "saved";
   splitMode?: boolean;
   onSplitModeChange?: (v: boolean) => void;
+  focusMode?: boolean;
+  onToggleFocus?: () => void;
 }
 
 export function EditorTopBar({
@@ -40,6 +42,8 @@ export function EditorTopBar({
   saveState = "idle",
   splitMode,
   onSplitModeChange,
+  focusMode = false,
+  onToggleFocus,
 }: Props) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -235,6 +239,21 @@ export function EditorTopBar({
           </div>
         )}
       </div>
+
+      {/* Focus mode — ẩn 2 cột để làm việc rộng (phím tắt \) */}
+      {onToggleFocus && (
+        <button
+          type="button"
+          onClick={onToggleFocus}
+          title={focusMode ? "Thoát tập trung (\\)" : "Tập trung — ẩn 2 cột (\\)"}
+          className={cn(
+            "flex items-center rounded-md p-1.5 transition-colors",
+            focusMode ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+          )}
+        >
+          {focusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
+      )}
 
       {/* Overflow — gom hành động phụ (bớt nút ở hàng chính) */}
       <div ref={moreMenuRef} className="relative">

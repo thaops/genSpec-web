@@ -89,6 +89,33 @@ export default function EstimateEditorPage() {
   const [repricing, setRepricing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
+  // P7 Focus mode: ẩn cả 2 cột (Explorer + Agent) → workspace full-width.
+  const [focusMode, setFocusMode] = useState(false);
+  function toggleFocus() {
+    setFocusMode((on) => {
+      const next = !on;
+      setExplorerCollapsed(next);
+      setCollapsed(next);
+      return next;
+    });
+  }
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "\\" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+      e.preventDefault();
+      setFocusMode((on) => {
+        const next = !on;
+        setExplorerCollapsed(next);
+        setCollapsed(next);
+        return next;
+      });
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [renamingSheetId, setRenamingSheetId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [selectedRange, setSelectedRange] = useState<{
@@ -1041,6 +1068,8 @@ export default function EstimateEditorPage() {
         saveState={saveState}
         splitMode={splitMode}
         onSplitModeChange={setSplitMode}
+        focusMode={focusMode}
+        onToggleFocus={toggleFocus}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
