@@ -17,6 +17,7 @@ interface Props {
   onRename: (name: string) => void;
   onExport: () => void;
   onExportTHDT?: () => void;
+  onExportTMDT?: () => void;
   exporting: boolean;
   onImportExcel?: (file: File) => void;
   importing?: boolean;
@@ -34,6 +35,7 @@ export function EditorTopBar({
   onRename,
   onExport,
   onExportTHDT,
+  onExportTMDT,
   exporting,
   onImportExcel,
   importing = false,
@@ -236,6 +238,18 @@ export function EditorTopBar({
             >
               Xuất THDT
             </button>
+            {onExportTMDT && (
+              <button
+                type="button"
+                onClick={() => {
+                  setExportMenuOpen(false);
+                  onExportTMDT();
+                }}
+                className="block w-full px-3 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+              >
+                Xuất TMĐT
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
-import { api, ApiError, exportTHDT, runTakeoffEngine, triggerDownload } from "@/lib/api";
+import { api, ApiError, exportTHDT, exportTMDT, runTakeoffEngine, triggerDownload } from "@/lib/api";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -417,6 +417,20 @@ export default function EstimateEditorPage() {
       const safe =
         (estimate.name || "estimate").replace(/[^\w\-]+/g, "_") || "estimate";
       triggerDownload(blob, `${safe}_THDT.xlsx`);
+    } catch (err) {
+      toast.error(t("editor.exportFailed"), (err as ApiError).message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function onExportTMDT() {
+    if (!estimate || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await exportTMDT(estimate.id);
+      const safe = (estimate.name || "estimate").replace(/[^\w\-]+/g, "_") || "estimate";
+      triggerDownload(blob, `${safe}_TMDT.xlsx`);
     } catch (err) {
       toast.error(t("editor.exportFailed"), (err as ApiError).message);
     } finally {
@@ -1066,6 +1080,7 @@ export default function EstimateEditorPage() {
         onRename={onRename}
         onExport={onExport}
         onExportTHDT={onExportTHDT}
+        onExportTMDT={onExportTMDT}
         exporting={exporting}
         onImportExcel={onImportExcel}
         importing={importing}

@@ -821,6 +821,10 @@ export function exportTHDT(id: string): Promise<Blob> {
   return downloadBlob(`/estimates/${id}/export-thdt`);
 }
 
+export function exportTMDT(id: string): Promise<Blob> {
+  return downloadBlob(`/estimates/${id}/export-tmdt`);
+}
+
 // ---------- Deterministic takeoff engine (⚡ Bóc toàn bộ) ----------
 // Fast (<2s) geometry-based takeoff computed on the BE — returns a
 // CopilotProposal (NOT applied); FE injects it into the chat as a pending
