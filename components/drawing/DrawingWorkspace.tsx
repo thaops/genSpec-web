@@ -12,6 +12,8 @@ import { DrawingUpload } from "./DrawingUpload";
 import { ObjectInspector } from "./ObjectInspector";
 import { ReviewQueue, type ReviewStates, type ReviewStatus } from "./ReviewQueue";
 import { RevisionPanel } from "./RevisionPanel";
+import { RebarPanel } from "./RebarPanel";
+import { BuildingPanel } from "./BuildingPanel";
 import { DrawingToolbar, type DrawingTool } from "./DrawingToolbar";
 import { Spinner } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -142,6 +144,7 @@ export interface DrawingViewportInfo {
 
 interface DrawingWorkspaceProps {
   estimateId: string;
+  location?: string; // tỉnh dự án — để định giá MEP theo tên
   activeDrawingId?: string;
   onDrawingSelect?: (drawingId: string) => void;
   onObjectSelect?: (obj: DrawingObject) => void;
@@ -175,6 +178,7 @@ interface DrawingWorkspaceProps {
 
 export function DrawingWorkspace({
   estimateId,
+  location,
   activeDrawingId,
   onDrawingSelect,
   onObjectSelect,
@@ -199,7 +203,7 @@ export function DrawingWorkspace({
   const [loadingObjects, setLoadingObjects] = useState(false);
   // P4 — 1 dock phải duy nhất: Review / Revision / Inspector loại trừ lẫn nhau
   // (mở cái này tự đóng cái kia → không còn panel chồng nhau). Giữ API 3 setter cũ.
-  const [rightPanel, setRightPanel] = useState<"none" | "review" | "revision" | "inspector">("none");
+  const [rightPanel, setRightPanel] = useState<"none" | "review" | "revision" | "inspector" | "rebar" | "building">("none");
   const inspectorOpen = rightPanel === "inspector";
   const reviewOpen = rightPanel === "review";
   const revisionOpen = rightPanel === "revision";
@@ -841,6 +845,13 @@ export function DrawingWorkspace({
                             <Settings2 className="h-3.5 w-3.5 text-zinc-400" /> Giả định bóc (cao tầng, tường…)
                           </button>
                         )}
+                        <div className="my-1 border-t border-zinc-800" />
+                        <button
+                          onClick={() => { setTakeoffMenuOpen(false); setRightPanel("rebar"); }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800"
+                        >
+                          <Zap className="h-3.5 w-3.5 text-amber-400" /> Bóc thép (bản KC)
+                        </button>
                       </div>
                     )}
                     {assumpOpen && activeDrawingId && (
@@ -888,6 +899,13 @@ export function DrawingWorkspace({
                           className="flex w-full items-center px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800"
                         >
                           Inspector đối tượng
+                        </button>
+                        <div className="my-1 border-t border-zinc-800" />
+                        <button
+                          onClick={() => { setViewMenuOpen(false); setRightPanel("building"); }}
+                          className="flex w-full items-center px-3 py-1.5 text-left text-zinc-200 hover:bg-zinc-800"
+                        >
+                          Công trình (tầng · MEP · rà soát)
                         </button>
                       </div>
                     )}
@@ -1020,6 +1038,29 @@ export function DrawingWorkspace({
             takeoffBusy={takeoffBusy}
             onJumpToBoq={onJumpToBoq}
             onCorrectType={handleCorrectType}
+          />
+        </div>
+      )}
+
+      {/* Rebar panel (bóc thép) */}
+      {rightPanel === "rebar" && activeDrawingId && (
+        <div className="w-72 shrink-0 border-l border-zinc-800 bg-zinc-900">
+          <RebarPanel
+            estimateId={estimateId}
+            drawingId={activeDrawingId}
+            onClose={() => setRightPanel("none")}
+          />
+        </div>
+      )}
+
+      {/* Building panel (tầng · MEP · rà soát) */}
+      {rightPanel === "building" && activeDrawingId && (
+        <div className="w-72 shrink-0 border-l border-zinc-800 bg-zinc-900">
+          <BuildingPanel
+            estimateId={estimateId}
+            drawingId={activeDrawingId}
+            location={location}
+            onClose={() => setRightPanel("none")}
           />
         </div>
       )}

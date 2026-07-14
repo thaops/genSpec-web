@@ -27,6 +27,96 @@ import type {
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "https://genspec-api-production-9f98.up.railway.app";
 
+// ── Types cho endpoint Building/MEP/Review/Rebar/Knowledge ─────────────────
+export interface RebarDiameterSummary {
+  diameter: number;
+  unitWeightKgM: number;
+  mainBarCount: number;
+  stirrupCalloutCount: number;
+  spacings: number[];
+}
+export interface RebarTakeoff {
+  totalCallouts: number;
+  diameters: RebarDiameterSummary[];
+  note: string;
+}
+export interface RebarWeightRow {
+  diameter: number;
+  totalLengthM: number;
+  unitWeightKgM: number;
+  weightKg: number;
+}
+export interface RebarWeightResult {
+  rows: RebarWeightRow[];
+  totalKg: number;
+  wasteFactor: number;
+}
+export interface RoomNode {
+  stableId: string;
+  name: string;
+  floor?: string;
+  objectCount: number;
+  typeCounts: Record<string, number>;
+  memberStableIds: string[];
+}
+export interface FloorNode {
+  floor: string;
+  objectCount: number;
+  typeCounts: Record<string, number>;
+  rooms: RoomNode[];
+}
+export interface BuildingGraph {
+  floors: FloorNode[];
+  unassignedFloorCount: number;
+  totalObjects: number;
+}
+export interface MepRow {
+  type: string;
+  label: string;
+  kind: "count" | "length";
+  unit: string;
+  quantity: number;
+  floor?: string;
+  unitPrice?: number;
+  totalPrice?: number;
+  priceSource?: string;
+}
+export interface ScopeGapFinding {
+  severity: "high" | "medium" | "low";
+  category: "missing_scope" | "consistency";
+  code: string;
+  scope: string;
+  message: string;
+  suggestion?: string;
+}
+export interface PriceSourceRef {
+  sourceId: string;
+  price: number;
+  trust: number;
+  effectiveDate: string;
+  documentNumber?: string;
+  province?: string | null;
+}
+export interface MaterialKnowledge {
+  query: string;
+  matched: boolean;
+  name?: string;
+  unit?: string;
+  latest?: PriceSourceRef;
+  sources: PriceSourceRef[];
+  history: { effectiveDate: string; price: number; sourceId: string }[];
+}
+export interface SwapImpact {
+  from: { query: string; name?: string; price?: number };
+  to: { query: string; name?: string; price?: number };
+  matched: boolean;
+  unit?: string;
+  quantity: number;
+  deltaUnit?: number;
+  deltaPercent?: number;
+  totalDelta?: number;
+}
+
 export class ApiError extends Error {
   statusCode: number;
   body?: ApiErrorBody;
@@ -517,6 +607,79 @@ export const api = {
       `/estimates/${estimateId}/drawings/${drawingId}/objects/${stableId}/type`,
       { method: "PATCH", body: { type } }
     ),
+
+  // ── Building Graph / MEP / Review / Rebar / Knowledge (backend sprint endpoints) ──
+
+  // Rebar takeoff — bóc cốt thép từ callout (%%C=Ø). Không suy kg (cần chiều dài).
+  rebarTakeoff: (estimateId: string, drawingId: string) =>
+    request<RebarTakeoff>(`/estimates/${estimateId}/drawings/${drawingId}/rebar`),
+
+  // kg thép khi ĐÃ có chiều dài (từ bảng thống kê / cấu kiện).
+  rebarWeight: (
+    estimateId: string,
+    drawingId: string,
+    lengths: { diameter: number; totalLengthM: number }[],
+    wasteFactor = 1.0,
+  ) =>
+    request<RebarWeightResult>(
+      `/estimates/${estimateId}/drawings/${drawingId}/rebar/weight`,
+      { method: "POST", body: { lengths, wasteFactor } },
+    ),
+
+  // Building Graph — cây Building→Floor→Room→Object.
+  building: (estimateId: string, drawingId: string) =>
+    request<BuildingGraph>(`/estimates/${estimateId}/drawings/${drawingId}/building`),
+
+  // typeCounts theo từng tầng.
+  buildingFloors: (estimateId: string, drawingId: string) =>
+    request<Record<string, Record<string, number>>>(
+      `/estimates/${estimateId}/drawings/${drawingId}/building/floors`,
+    ),
+
+  // "Tầng X bao nhiêu <type>?"
+  buildingCount: (estimateId: string, drawingId: string, type: string, floor?: string) =>
+    request<{ type: string; floor: string | null; count: number }>(
+      `/estimates/${estimateId}/drawings/${drawingId}/building/count?type=${encodeURIComponent(type)}${floor ? `&floor=${encodeURIComponent(floor)}` : ""}`,
+    ),
+
+  // "Phòng nào chưa có <type>?"
+  buildingRoomsMissing: (estimateId: string, drawingId: string, type: string) =>
+    request<RoomNode[]>(
+      `/estimates/${estimateId}/drawings/${drawingId}/building/rooms-missing?type=${encodeURIComponent(type)}`,
+    ),
+
+  // MEP takeoff — đếm thiết bị + đo tuyến; định giá theo tên nếu có location.
+  buildingMep: (
+    estimateId: string,
+    drawingId: string,
+    opts: { factor?: number; byFloor?: boolean; location?: string } = {},
+  ) => {
+    const q = new URLSearchParams();
+    if (opts.factor != null) q.set("factor", String(opts.factor));
+    if (opts.byFloor) q.set("byFloor", "true");
+    if (opts.location) q.set("location", opts.location);
+    const qs = q.toString();
+    return request<MepRow[]>(
+      `/estimates/${estimateId}/drawings/${drawingId}/building/mep${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  // AI Review — phát hiện thiếu phạm vi (scope-gap).
+  buildingReview: (estimateId: string, drawingId: string) =>
+    request<ScopeGapFinding[]>(`/estimates/${estimateId}/drawings/${drawingId}/building/review`),
+
+  // Knowledge Graph — tri thức 1 vật tư (nguồn + giá mới nhất + lịch sử).
+  knowledgeMaterial: (name: string, province?: string) =>
+    request<MaterialKnowledge>(
+      `/data-hub/knowledge/material?name=${encodeURIComponent(name)}${province ? `&province=${encodeURIComponent(province)}` : ""}`,
+    ),
+
+  // Knowledge Graph — "Đổi A→B chênh bao nhiêu?" × khối lượng.
+  knowledgeSwap: (from: string, to: string, quantity = 1, province?: string) => {
+    const q = new URLSearchParams({ from, to, quantity: String(quantity) });
+    if (province) q.set("province", province);
+    return request<SwapImpact>(`/data-hub/knowledge/swap?${q.toString()}`);
+  },
 
   // Tier 2 layer overrides (per-project)
   getLayerRules: (estimateId: string) =>

@@ -1021,6 +1021,7 @@ export default function EstimateEditorPage() {
   const drawingContent = (
     <DrawingWorkspace
       estimateId={estimate.id}
+      location={estimate?.projectInfo?.location}
       activeDrawingId={activeDrawingId}
       onDrawingSelect={setActiveDrawingId}
       onObjectSelect={handleDrawingObjectSelect}
