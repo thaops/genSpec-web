@@ -860,6 +860,77 @@ export function runTakeoffEngine(
   });
 }
 
+// ---------- Tra mã & Phân tích đơn giá (QS lookup) ----------
+// Đọc dữ liệu giá THẬT đã nạp (unit_prices + material_prices). Mọi kết quả có nguồn.
+
+export interface UnitPriceResult {
+  code: string;
+  name: string;
+  unit: string;
+  material: number; // đơn giá VL
+  labor: number; // đơn giá NC
+  machine: number; // đơn giá Máy
+  unitPrice: number; // tổng
+  province: string;
+  sourceDoc: string; // NGUỒN — vd "TT13/2021 - Đơn giá Hà Nội"
+  sourceOrigin?: string; // vd "luatvietnam.vn"
+  splitConfident?: boolean; // false = tách VL/NC/M là suy đoán (tổng vẫn chuẩn)
+}
+
+export interface ResourcePriceResult {
+  materialId: string;
+  name: string;
+  category: "material" | "labor" | "equipment" | "fuel" | "transport";
+  unit: string;
+  price: number;
+  province?: string;
+  sourceId: string; // NGUỒN
+  trust?: number;
+  effectiveDate?: string;
+  documentNumber?: string;
+}
+
+/** Tra đơn giá công tác theo mã hiệu hoặc từ khóa tên, lọc theo tỉnh. */
+export function searchUnitPrice(
+  q: string,
+  province?: string,
+  limit?: number
+): Promise<UnitPriceResult[]> {
+  const p = new URLSearchParams();
+  if (q) p.set("q", q);
+  if (province) p.set("province", province);
+  if (limit) p.set("limit", String(limit));
+  return request<UnitPriceResult[]>(`/catalog/unit-price/search?${p.toString()}`);
+}
+
+/** Tra 1 đơn giá công tác theo mã hiệu (prefix) — dùng cho phân tích đơn giá. */
+export function getUnitPriceByCode(
+  code: string,
+  province?: string
+): Promise<UnitPriceResult | null> {
+  const p = new URLSearchParams();
+  if (province) p.set("province", province);
+  const qs = p.toString();
+  return request<UnitPriceResult | null>(
+    `/catalog/unit-price/${encodeURIComponent(code)}${qs ? `?${qs}` : ""}`
+  );
+}
+
+/** Tra giá tài nguyên (VL/NC/ca máy) trong material_prices — có nguồn. */
+export function searchResourcePrice(
+  q: string,
+  opts: { province?: string; category?: string; limit?: number } = {}
+): Promise<ResourcePriceResult[]> {
+  const p = new URLSearchParams();
+  if (q) p.set("q", q);
+  if (opts.province) p.set("province", opts.province);
+  if (opts.category) p.set("category", opts.category);
+  if (opts.limit) p.set("limit", String(opts.limit));
+  return request<ResourcePriceResult[]>(
+    `/catalog/resource-price/search?${p.toString()}`
+  );
+}
+
 // ---------- Drawing Revision Compare V2 (M3-B) ----------
 // Standalone (kept out of the `api` object so this file stays append-only).
 // Compares `drawingId` (current/new) against `againstDrawingId` (base/old).

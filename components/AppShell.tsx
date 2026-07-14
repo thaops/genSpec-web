@@ -16,7 +16,7 @@ import { CommandPalette } from "./home/CommandPalette";
 import { ThemeToggle } from "./ui/ThemeToggle";
 import { LanguageToggle } from "./LanguageToggle";
 import { LogoutIcon } from "./ui/icons";
-import { Search, Home, FolderOpen, X, ClipboardList, Settings, Plus } from "lucide-react";
+import { Search, Home, FolderOpen, X, ClipboardList, Settings, Plus, BookOpen } from "lucide-react";
 
 
 /** Lets pages inside the shell open the shared New Workspace modal. */
@@ -262,6 +262,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             )}
+
+            {/* Tra mã & Phân tích đơn giá */}
+            <Link
+              href="/lookup"
+              title="Tra mã & Phân tích đơn giá"
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+                pathname === "/lookup"
+                  ? "bg-accent-500/15 text-accent-300"
+                  : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300",
+              )}
+            >
+              <BookOpen className="h-4 w-4" />
+            </Link>
 
             <div className="mt-auto">
               <Link
