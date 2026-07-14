@@ -19,6 +19,7 @@ import {
 } from "@/components/estimate/AgentConsole";
 import type { AgentHandle } from "@/components/estimate/AgentConsole";
 import WorkbookEditor, { type WorkbookDriver } from "@/components/estimate/WorkbookEditor";
+import { WorkflowStepper } from "@/components/estimate/WorkflowStepper";
 import {
   CellExplainPopover,
   cellKeyOf,
@@ -1102,6 +1103,18 @@ export default function EstimateEditorPage() {
 
         {/* Main Area */}
         <div className="relative min-w-0 flex-1 overflow-hidden bg-zinc-950 flex flex-col">
+          {/* P6 task-mode: điều hướng theo bước QS */}
+          <WorkflowStepper
+            active={
+              viewMode === "drawing" ? "draw" : viewMode === "insights" ? "check" : "estimate"
+            }
+            onStep={(step) => {
+              if (step === "draw") setViewMode("drawing");
+              else if (step === "check") setViewMode("insights");
+              else if (step === "estimate") setViewMode("workbook");
+              else onExport();
+            }}
+          />
           {agentTask && (
             <AgentTaskPill
               task={agentTask}
