@@ -224,6 +224,23 @@ html.light .text-blue-400 {
   animation: floatGlow 4s ease-in-out infinite;
 }
 
+/* Login brand panel — drifting gradient blobs + panning blueprint grid. */
+@keyframes blobDrift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(24px, -30px) scale(1.08); }
+  66% { transform: translate(-20px, 20px) scale(0.95); }
+}
+.animate-blob {
+  animation: blobDrift 16s ease-in-out infinite;
+}
+@keyframes gridPan {
+  from { background-position: 0 0; }
+  to { background-position: 40px 40px; }
+}
+.animate-grid-pan {
+  animation: gridPan 8s linear infinite;
+}
+
 /* Shimmering text (for "thinking" status lines). */
 .text-shimmer {
   background: linear-gradient(
@@ -261,7 +278,9 @@ html.light .text-blue-400 {
     content: "";
   }
   .animate-float-glow,
-  .animate-pulse-glow {
+  .animate-pulse-glow,
+  .animate-blob,
+  .animate-grid-pan {
     animation: none;
   }
 }
