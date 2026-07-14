@@ -5,14 +5,15 @@ import { X } from "lucide-react";
 import { api, type BuildingGraph, type MepRow, type ScopeGapFinding, type SwapImpact } from "@/lib/api";
 import { Spinner } from "@/components/ui/Button";
 
+type Tab = "floors" | "mep" | "review" | "swap";
+
 interface Props {
   estimateId: string;
   drawingId: string;
   location?: string;
+  initialTab?: Tab;
   onClose: () => void;
 }
-
-type Tab = "floors" | "mep" | "review" | "swap";
 
 const SEV_CLS: Record<ScopeGapFinding["severity"], string> = {
   high: "border-rose-500/30 bg-rose-500/10 text-rose-300",
@@ -22,8 +23,8 @@ const SEV_CLS: Record<ScopeGapFinding["severity"], string> = {
 const SEV_LABEL: Record<ScopeGapFinding["severity"], string> = { high: "Cao", medium: "TB", low: "Thấp" };
 
 // Building Graph: cây tầng→phòng, MEP takeoff, rà soát thiếu phạm vi.
-export function BuildingPanel({ estimateId, drawingId, location, onClose }: Props) {
-  const [tab, setTab] = useState<Tab>("floors");
+export function BuildingPanel({ estimateId, drawingId, location, initialTab = "floors", onClose }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [unit, setUnit] = useState<"mm" | "m">("mm"); // factor cho chiều dài MEP
   const [graph, setGraph] = useState<BuildingGraph | null>(null);
   const [mep, setMep] = useState<MepRow[] | null>(null);

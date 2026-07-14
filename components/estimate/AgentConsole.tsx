@@ -1584,6 +1584,7 @@ export function AgentConsole({
             scrollRef={scrollRef}
             onScroll={handleChatScroll}
             onStopDrive={stopDrive}
+            onViewActivity={() => { setHistoryTab("changes"); setShowHistory(true); }}
             mentionItems={mentionItems}
             patchIds={(estimate.patchHistory ?? []).map((p) => p.id)}
             onUndoMessage={undoMessage}
@@ -1630,6 +1631,7 @@ interface ChatPanelProps {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onScroll: () => void;
   onStopDrive: () => void;
+  onViewActivity: () => void;
   mentionItems: MentionItem[];
   patchIds: string[];
   onUndoMessage: (msg: ConversationMessage) => void;
@@ -1688,6 +1690,7 @@ function ChatPanel({
   scrollRef,
   onScroll,
   onStopDrive,
+  onViewActivity,
   mentionItems,
   patchIds,
   onUndoMessage,
@@ -1844,7 +1847,7 @@ function ChatPanel({
                   fresh={proposalItem.state === "pending"}
                   onApply={() => onApplyProposal(proposalItem)}
                   onDiscard={() => onDiscardProposal(proposalItem)}
-                  onViewActivity={() => {}}
+                  onViewActivity={onViewActivity}
                 />
                 {proposalItem.state === "applied" && undoBtn}
               </div>

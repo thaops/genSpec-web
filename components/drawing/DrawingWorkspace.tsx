@@ -216,6 +216,8 @@ export function DrawingWorkspace({
   const setInspectorOpen = makePanelSetter("inspector");
   const setReviewOpen = makePanelSetter("review");
   const setRevisionOpen = makePanelSetter("revision");
+  // Tab khởi tạo cho BuildingPanel (mở thẳng Rà soát từ Inspector)
+  const [buildingInitialTab, setBuildingInitialTab] = useState<"floors" | "mep" | "review" | "swap">("floors");
   const [activeTool, setActiveTool] = useState<DrawingTool>("pointer");
   const [viewport, setViewport] = useState({ page: 1, scale: 1.2, scrollX: 0, scrollY: 0 });
   // Unified vector scene (M1) — null while loading / after 404 fallback
@@ -1038,6 +1040,7 @@ export function DrawingWorkspace({
             takeoffBusy={takeoffBusy}
             onJumpToBoq={onJumpToBoq}
             onCorrectType={handleCorrectType}
+            onReviewFindings={() => { setBuildingInitialTab("review"); setRightPanel("building"); }}
           />
         </div>
       )}
@@ -1060,6 +1063,7 @@ export function DrawingWorkspace({
             estimateId={estimateId}
             drawingId={activeDrawingId}
             location={location}
+            initialTab={buildingInitialTab}
             onClose={() => setRightPanel("none")}
           />
         </div>

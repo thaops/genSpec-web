@@ -107,6 +107,8 @@ interface ObjectInspectorProps {
   onJumpToBoq?: (obj: DrawingObject) => void;
   // Tier 4 — user corrects this object's type (durable across re-detect)
   onCorrectType?: (obj: DrawingObject, type: string) => Promise<void>;
+  // Mở panel Công trình → tab Rà soát (scope-gap findings)
+  onReviewFindings?: () => void;
 }
 
 const CORRECT_TYPES: string[] = [
@@ -122,6 +124,7 @@ export function ObjectInspector({
   takeoffBusy = false,
   onJumpToBoq,
   onCorrectType,
+  onReviewFindings,
 }: ObjectInspectorProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("summary");
   const [correcting, setCorrecting] = useState(false);
@@ -403,9 +406,14 @@ export function ObjectInspector({
             >
               <Sparkles className="h-3 w-3 mr-1 inline" /> {takeoffBusy ? "Đang bóc…" : "Generate Takeoff"}
             </button>
-            <button className="w-full px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors">
-              <ClipboardList className="h-3 w-3 mr-1 inline" /> Review AI findings
-            </button>
+            {onReviewFindings && (
+              <button
+                onClick={onReviewFindings}
+                className="w-full px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
+              >
+                <ClipboardList className="h-3 w-3 mr-1 inline" /> Rà soát thiếu phạm vi
+              </button>
+            )}
           </div>
         )}
 
