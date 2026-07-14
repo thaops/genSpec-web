@@ -35,7 +35,7 @@ const TOOLS: Tool[] = [
   { id: "ai",      Icon: Sparkles,        label: "AI Detect", shortcut: "⌘D" },
 ];
 
-const DEFAULT_CAPABILITIES: DrawingTool[] = ["pointer", "search", "ai"];
+const DEFAULT_CAPABILITIES: DrawingTool[] = ["pointer", "ai"];
 
 interface DrawingToolbarProps {
   activeTool: DrawingTool;

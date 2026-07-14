@@ -758,8 +758,8 @@ export function DrawingWorkspace({
   const isImage = isReady && activeDrawing.type === "image";
 
   const capabilities: DrawingTool[] = sceneActive
-    ? ["pointer", "measure", "area", "scope", "layer", "search", "ai"]
-    : ["pointer", "search", "ai"];
+    ? ["pointer", "measure", "area", "scope", "layer", "ai"]
+    : ["pointer", "ai"];
 
   return (
     <div className="relative flex h-full overflow-hidden">
