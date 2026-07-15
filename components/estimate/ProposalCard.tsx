@@ -17,6 +17,10 @@ import { ConfidenceCard } from "./ConfidenceCard";
 import { ValidationPanel } from "./transparency/ValidationPanel";
 import { TracePanel } from "./transparency/TracePanel";
 
+// Chỉ hiện vài ô đầu trong "Chi tiết" — đổi hàng chục ô ("23 ô dữ liệu") thành
+// nút "Xem nhật ký" thay vì liệt kê hết, tránh cảm giác "tường số" khó tiếp cận.
+const DIFF_PREVIEW_COUNT = 5;
+
 const KIND_LABEL: Record<string, TKey> = {
   material: "copilot.countMaterial",
   labor: "copilot.countLabor",
@@ -235,27 +239,38 @@ export function ProposalCard({
                 {proposal.confidence && <ConfidenceCard confidence={proposal.confidence} />}
                 <TracePanel trace={proposal.trace} />
 
-                {/* Thay đổi từng dòng */}
+                {/* Thay đổi từng dòng — chỉ vài dòng đầu, còn lại xem ở nhật ký (tránh "tường số" khi có hàng chục ô). */}
                 {diffs.length > 0 && (
-                  <ul className="space-y-1 rounded-lg border border-zinc-800 bg-zinc-950/50 p-2 font-mono text-[11px]">
-                    {diffs.map((d, i) => {
-                      let refDisplay = d.ref;
-                      if (d.ref.includes("->")) {
-                        const parts = d.ref.split("->").map((p) => p.trim());
-                        if (parts.length === 2) refDisplay = `Ô ${parts[1]}`;
-                      }
-                      return (
-                        <li key={i} className="flex flex-wrap items-baseline gap-1.5">
-                          <span className="text-accent-300">{refDisplay}</span>
-                          <span className="text-zinc-600">·</span>
-                          <span className="text-zinc-500">{d.field}</span>
-                          <span className="text-rose-300/90 line-through">{d.from}</span>
-                          <span className="text-zinc-600">→</span>
-                          <span className="text-emerald-300">{d.to}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <div>
+                    <ul className="space-y-1 rounded-lg border border-zinc-800 bg-zinc-950/50 p-2 font-mono text-[11px]">
+                      {diffs.slice(0, DIFF_PREVIEW_COUNT).map((d, i) => {
+                        let refDisplay = d.ref;
+                        if (d.ref.includes("->")) {
+                          const parts = d.ref.split("->").map((p) => p.trim());
+                          if (parts.length === 2) refDisplay = `Ô ${parts[1]}`;
+                        }
+                        return (
+                          <li key={i} className="flex flex-wrap items-baseline gap-1.5">
+                            <span className="text-accent-300">{refDisplay}</span>
+                            <span className="text-zinc-600">·</span>
+                            <span className="text-zinc-500">{d.field}</span>
+                            <span className="text-rose-300/90 line-through">{d.from}</span>
+                            <span className="text-zinc-600">→</span>
+                            <span className="text-emerald-300">{d.to}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {diffs.length > DIFF_PREVIEW_COUNT && (
+                      <button
+                        type="button"
+                        onClick={onViewActivity}
+                        className="mt-1 text-[11px] text-zinc-500 hover:text-accent-300"
+                      >
+                        +{diffs.length - DIFF_PREVIEW_COUNT} ô khác — {t("copilot.viewActivity")}
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {/* Nguồn giá (đầy đủ) */}
