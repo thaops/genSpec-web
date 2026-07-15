@@ -4,6 +4,14 @@
 import { useEffect, useRef } from "react";
 import type { Sheet, Workbook } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
+import {
+  cellBgOf,
+  collectStyleRegistry,
+  internCellData,
+  rehydrateSavedSheets,
+  resolveStyle,
+  sheetsHash,
+} from "@/lib/univer-style";
 
 /**
  * Imperative handle the AI agent uses to drive the spreadsheet live —
@@ -190,9 +198,8 @@ export default function WorkbookEditor({
         const cd = (s.data?.cellData ?? {}) as Record<string, Record<string, any>>;
         for (const [rStr, cols] of Object.entries(cd)) {
           for (const [cStr, cell] of Object.entries(cols)) {
-            let st = (cell as any)?.s;
-            if (typeof st === "string") st = collectedStylesRef.current[st];
-            if (!st || typeof st !== "object") continue;
+            const st = resolveStyle(cell, collectedStylesRef.current);
+            if (!st) continue;
             try {
               const range = ws.getRange?.(Number(rStr), Number(cStr), 1, 1);
               if (!range) continue;
@@ -294,46 +301,9 @@ export default function WorkbookEditor({
       applyUniverColors(initIsDark);
       requestAnimationFrame(() => applyUniverColors(themeRef.current === "dark"));
 
-      // Collect workbook-level styles stored on the first sheet after import
-      const styleRegistry: Record<string, any> = {};
-      for (const s of (workbookData.sheets ?? [])) {
-        if (s.data?._styles) Object.assign(styleRegistry, s.data._styles);
-      }
-      // INTERN inline cell-style (cell.s = object) vào registry, thay bằng ID (ref).
-      // Univer render style qua REGISTRY ổn định trên MỌI sheet; style dạng inline
-      // object hay không hiện trên sheet chưa active (gốc bug "mất màu khi chuyển tab").
-      const styleIndex = new Map<string, string>();
-      let styleSeq = 0;
-      const internStyle = (st: any): string => {
-        const json = JSON.stringify(st);
-        let id = styleIndex.get(json);
-        if (!id) {
-          id = `bqs${styleSeq++}`;
-          styleIndex.set(json, id);
-          styleRegistry[id] = st;
-        }
-        return id;
-      };
-      const internCellData = (cd: Record<string, Record<string, any>>) => {
-        const out: Record<string, Record<string, any>> = {};
-        for (const [r, cols] of Object.entries(cd)) {
-          out[r] = {};
-          for (const [c, cell] of Object.entries(cols)) {
-            const st = (cell as any)?.s;
-            if (st && typeof st === "object") {
-              out[r][c] = { ...cell, s: internStyle(st) };
-            } else if (typeof st === "string" && styleRegistry[st]) {
-              out[r][c] = cell;
-            } else if (typeof st === "string") {
-              const { s: _dead, ...rest } = cell as any;
-              out[r][c] = rest;
-            } else {
-              out[r][c] = cell;
-            }
-          }
-        }
-        return out;
-      };
+      // Registry workbook-level (persist kèm sheet đầu dưới `_styles`) + intern
+      // style inline thành ID — xem lib/univer-style.ts.
+      const styleRegistry = collectStyleRegistry(workbookData.sheets);
 
       // Build sheets — spread full Univer sheet data so columnData/rowData/mergeData survive reload
       const sheets: Record<string, any> = {};
@@ -347,7 +317,7 @@ export default function WorkbookEditor({
             ...univerSheetData,
             id: s.id,
             name: s.name,
-            cellData: internCellData(s.data?.cellData ?? {}),
+            cellData: internCellData(s.data?.cellData ?? {}, styleRegistry),
             rowCount: s.data?.rowCount ?? 100,
             columnCount: s.data?.columnCount ?? 20,
           };
@@ -429,10 +399,13 @@ export default function WorkbookEditor({
           for (const { sheetId, row, col } of changedCells) {
             const univSheet = wb.getSheetBySheetId?.(sheetId);
             if (!univSheet) continue;
+            // Khôi phục ĐÚNG nền gốc, không phải "" — "" là XOÁ nền và sẽ được
+            // auto-save ghi xuống DB (bg:{rgb:""}) ⇒ reload mất style.
+            const restore = cellBgOf(newSheets, collectedStylesRef.current, sheetId, row, col);
             try {
               univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor(agentFlashColor());
               setTimeout(() => {
-                try { univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor(""); } catch (_) {}
+                try { univSheet.getRange?.(row, col, 1, 1)?.setBackgroundColor(restore); } catch (_) {}
               }, 1500);
             } catch (_) {}
           }
@@ -456,55 +429,13 @@ export default function WorkbookEditor({
 
         const raw = wb.save() as any;
         if (!raw?.sheets) return;
-        const sheetKeys = Object.keys(raw.sheets);
         if (raw.styles && typeof raw.styles === "object") {
           Object.assign(collectedStylesRef.current, raw.styles);
         }
-        const styleMap = collectedStylesRef.current;
-        // Snapshot style cũ (dạng object) theo key sheet/row/col để khôi phục khi
-        // Univer trả về style-ID không resolve được — tránh mất style qua auto-save.
-        const prevSheets = lastSheetsRef.current ?? [];
-        const prevStyleAt = (key: string, rk: string, ck: string): any => {
-          for (const ps of prevSheets) {
-            const pcd = (ps as any)?.data?.cellData;
-            const pcell = pcd?.[rk]?.[ck];
-            if (pcell && pcell.s && typeof pcell.s === "object") return pcell.s;
-          }
-          return null;
-        };
-        for (const key of sheetKeys) {
-          const cd = raw.sheets[key]?.cellData as Record<string, Record<string, any>> | undefined;
-          if (!cd) continue;
-          for (const [rk, cols] of Object.entries(cd)) {
-            for (const [ck, cell] of Object.entries(cols)) {
-              const sid = (cell as any)?.s;
-              if (typeof sid === "string") {
-                if (styleMap[sid]) {
-                  (cell as any).s = styleMap[sid];
-                } else {
-                  // ID không tra được → GIỮ style cũ thay vì xoá (bug mất style khi reload)
-                  const prev = prevStyleAt(key, rk, ck);
-                  if (prev) (cell as any).s = prev;
-                  else delete (cell as any).s;
-                }
-              }
-            }
-          }
-        }
-        if (sheetKeys.length > 0 && Object.keys(styleMap).length > 0) {
-          raw.sheets[sheetKeys[0]]._styles = { ...styleMap };
-        }
-        const updated: Sheet[] = sheetKeys.map((key) => {
-          const s = raw.sheets[key];
-          return { id: s.id || key, name: s.name || "Sheet", data: s };
-        });
+        const updated = rehydrateSavedSheets(raw, collectedStylesRef.current, lastSheetsRef.current ?? []);
 
-        // Only save if cell data OR STYLE changed. Trước hash chỉ theo cellData →
-        // đổi màu/định dạng thuần (registry _styles đổi, cell.s ID giữ nguyên)
-        // không lưu → reload mất style. Nay kèm _styles vào hash.
-        const hash = JSON.stringify(
-          updated.map((s) => [s.data?.cellData ?? {}, (s.data as any)?._styles ?? null]),
-        );
+        // Only save if cell data OR STYLE changed (hash gồm cả `_styles`).
+        const hash = sheetsHash(updated);
         if (hash === lastCellHashRef.current) return;
         lastCellHashRef.current = hash;
         lastSheetsRef.current = updated; // track what's shown in Univer
@@ -594,13 +525,8 @@ export default function WorkbookEditor({
           if (raw.styles && typeof raw.styles === "object") {
             Object.assign(collectedStylesRef.current, raw.styles);
           }
-          const updated: Sheet[] = Object.keys(raw.sheets).map((key) => {
-            const s = raw.sheets[key];
-            return { id: s.id || key, name: s.name || "Sheet", data: s };
-          });
-          lastCellHashRef.current = JSON.stringify(
-            updated.map((s) => [s.data?.cellData ?? {}, (s.data as any)?._styles ?? null]),
-          );
+          const updated = rehydrateSavedSheets(raw, collectedStylesRef.current, lastSheetsRef.current ?? []);
+          lastCellHashRef.current = sheetsHash(updated);
           lastSheetsRef.current = updated;
         }
       },
@@ -649,9 +575,12 @@ export default function WorkbookEditor({
       flashCell: (sheetId, row, col) => {
         try {
           const range = getSheet(sheetId)?.getRange?.(row, col, 1, 1);
+          // Nền gốc để trả về sau flash. setBackgroundColor("") = xoá nền, và
+          // timeout thường nổ SAU endDrive ⇒ auto-save persist nền rỗng.
+          const restore = cellBgOf(styledSheetsRef.current, collectedStylesRef.current, sheetId, row, col);
           range?.setBackgroundColor?.(agentFlashColor());
           setTimeout(() => {
-            try { range?.setBackgroundColor?.(""); } catch (_) {}
+            try { range?.setBackgroundColor?.(restore); } catch (_) {}
           }, 1200);
         } catch (_) {}
       },

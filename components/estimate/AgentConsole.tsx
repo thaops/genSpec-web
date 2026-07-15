@@ -1027,13 +1027,29 @@ export function AgentConsole({
                   const applied = res.applied ?? p.actions.length;
                   const diffText = buildAppliedDiff(p.actions);
                   const history = res.estimate.patchHistory ?? [];
+                  const patchId = history[history.length - 1]?.id;
+                  // Auto-apply (Edit ON) vẫn phải hiện ProposalCard: đó là nơi
+                  // TracePanel/ValidationPanel/ConfidenceCard sống. Trước đây nhánh này
+                  // trả bubble "assistant" ⇒ bóc khối lượng (luôn cần Edit ON) không bao
+                  // giờ thấy trace. Card state "applied" → chỉ hiển thị + Chi tiết, không hỏi Apply lại.
                   const doneMsg: ConversationMessage = {
                     id: msgId,
-                    kind: "assistant",
-                    text: `${p.message}\n\n✓ Đã áp dụng ${applied} thay đổi.${diffText}`,
-                    patchId: history[history.length - 1]?.id,
+                    kind: p.actions.length > 0 ? "proposal" : "assistant",
+                    text:
+                      p.actions.length > 0
+                        ? p.message
+                        : `${p.message}\n\n✓ Đã áp dụng ${applied} thay đổi.${diffText}`,
+                    proposal: p,
+                    proposalState: "applied",
+                    patchId,
                     timestamp: ts,
                   };
+                  if (p.actions.length > 0) {
+                    setProposals((prev) => [
+                      ...prev,
+                      { msgId, proposal: p, state: "applied", appliedCount: applied, patchId, timestamp: ts },
+                    ]);
+                  }
                   const nextFinalThread = [...nextThread, doneMsg];
                   finalThread = nextFinalThread;
                   setThread(nextFinalThread);
