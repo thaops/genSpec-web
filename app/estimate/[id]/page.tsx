@@ -640,7 +640,7 @@ export default function EstimateEditorPage() {
 
   // 3 sheet BOQ theo nhóm công tác QS (đồng bộ BOQ_SHEETS ở backend engine).
   // Tên phải khớp chính xác để engine route dòng đúng sheet.
-  const BOQ_SHEET_NAMES = ["1. Kết cấu & bao che", "2. Hoàn thiện bề mặt", "3. Cửa & phụ kiện"];
+  const BOQ_SHEET_NAMES = ["1. Kết cấu & bao che", "2. Hoàn thiện bề mặt", "3. Cửa & phụ kiện", "4. Điện & Nước"];
 
   // Ensure the 3 BOQ sheets exist and make the first active (shared by both
   // ⚡ takeoff paths). Trả về id các sheet theo thứ tự để tour animation dùng.
