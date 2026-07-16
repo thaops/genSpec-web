@@ -129,6 +129,28 @@ describe("flash animation không được xoá nền gốc", () => {
     expect(cellBgOf(sheets, collectStyleRegistry(sheets), "s1", 1, 0)).toBe("");
   });
 
+  it("Univer save LÀM RỚT `s` của ô (v giữ nguyên) → rehydrate KHÔI PHỤC từ prev", () => {
+    // Gốc bug "lần đầu có màu, reload trắng": wb.save() trả ô header KHÔNG còn `s`
+    // (Univer nạp registry nhưng save ra mất ref) → vòng cũ bỏ qua ô mất s → persist
+    // trắng. Nay phải khôi phục từ prevSheets vì giá trị (v) không đổi.
+    const prev = stateAfterAgent(); // header có style
+    // Univer save trả object ĐỘC LẬP (deep copy) — mô phỏng Univer làm rớt `s` ở header.
+    const raw = JSON.parse(JSON.stringify(univerSave(prev, {})));
+    delete (raw.sheets["s1"].cellData["0"]["0"] as any).s; // GIỮ v="STT", mất s
+    const saved = rehydrateSavedSheets(raw, {}, prev);
+    expect((saved[0].data.cellData["0"]["0"] as any).s).toEqual(HEADER); // khôi phục, không trắng
+  });
+
+  it("KHÔNG hồi sinh style khi user ĐỔI giá trị ô (đó là sửa thật, không phải rớt)", () => {
+    const prev = stateAfterAgent();
+    const raw = JSON.parse(JSON.stringify(univerSave(prev, {})));
+    const c = raw.sheets["s1"].cellData["0"]["0"] as any;
+    delete c.s;
+    c.v = "ĐÃ SỬA"; // giá trị đổi → user sửa, không khôi phục style cũ
+    const saved = rehydrateSavedSheets(raw, {}, prev);
+    expect((saved[0].data.cellData["0"]["0"] as any).s).toBeUndefined();
+  });
+
   it("nền bị wipe thành \"\" rồi persist ⇒ reload mất màu (tái hiện bug)", () => {
     const wiped: Sheet[] = [
       { id: "s1", name: "S1", data: { cellData: { "0": { "0": { v: "STT", s: "h" } } }, _styles: { h: { ...HEADER, bg: { rgb: "" } } } } },

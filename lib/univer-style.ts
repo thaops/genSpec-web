@@ -124,6 +124,28 @@ export function rehydrateSavedSheets(
         }
       }
     }
+
+    // KHÔI PHỤC style Univer LÀM RỚT khi save. `wb.save()` (tuỳ phiên bản) có thể trả
+    // ô KHÔNG còn `s` dù ô đó vốn có style (engine ghi màu → inline object trong DB →
+    // Univer nạp registry nhưng save ra không giữ ref). Vòng trên chỉ xử lý ô CÓ id
+    // string, nên ô mất hẳn `s` bị bỏ qua → persist trắng → RELOAD MẤT MÀU (đúng triệu
+    // chứng "lần đầu có màu, reload trắng"). Ở đây: ô nào ở prev CÓ style, mà raw còn ô
+    // đó (GIÁ TRỊ không đổi) nhưng mất `s` → gắn lại style prev. Guard `v` không đổi để
+    // KHÔNG hồi sinh style trên ô user cố tình xoá định dạng (giá trị đổi = user sửa thật).
+    const sheetId = raw.sheets[key]?.id || key;
+    const prevCd = (prevSheets.find((p: any) => p?.id === sheetId)?.data as any)?.cellData as CellData | undefined;
+    if (prevCd) {
+      for (const [rk, cols] of Object.entries(prevCd)) {
+        for (const [ck, pcell] of Object.entries(cols)) {
+          const prevStyle = resolveStyle(pcell, styleMap);
+          if (!prevStyle) continue;
+          const rawCell = (cd as any)[rk]?.[ck];
+          if (rawCell && rawCell.s == null && rawCell.v === (pcell as any)?.v) {
+            rawCell.s = prevStyle;
+          }
+        }
+      }
+    }
   }
   if (sheetKeys.length > 0 && Object.keys(styleMap).length > 0) {
     raw.sheets[sheetKeys[0]]._styles = { ...styleMap };
