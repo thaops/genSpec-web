@@ -12,6 +12,7 @@ import {
   CheckCircleIcon,
   ChevronDownIcon,
 } from "@/components/ui/icons";
+import { eventBus } from "@/lib/events/EventBus";
 import { ThinkingTrace } from "./ThinkingTrace";
 import { ConfidenceCard } from "./ConfidenceCard";
 import { ValidationPanel } from "./transparency/ValidationPanel";
@@ -106,6 +107,11 @@ export function ProposalCard({
     }
     return { official, family, est, missing, total: official + family + est + missing };
   })();
+
+  // Finding "cột tròn chờ xác nhận" → hiện nút đo luôn (bóc lại + confirmRoundColumns).
+  const roundColFinding = (proposal.validation?.findings ?? []).find(
+    (f) => f.id === "takeoff-engine-round-columns"
+  );
   const hasDetail =
     (proposal.thinking?.length ?? 0) > 0 ||
     !!proposal.validation ||
@@ -204,6 +210,21 @@ export function ProposalCard({
                 {priceProvenance.missing} chưa có giá
               </span>
             )}
+          </div>
+        )}
+
+        {/* Cột tròn chờ xác nhận → nút đo luôn (πr²×H). Emit event → page bóc lại + confirm. */}
+        {roundColFinding && state !== "discarded" && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/[0.07] px-3 py-2">
+            <span className="min-w-0 flex-1 text-[11px] text-sky-200">{roundColFinding.title}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="shrink-0"
+              onClick={() => eventBus.emit("takeoff:confirm-round-columns", {})}
+            >
+              Đo cột tròn
+            </Button>
           </div>
         )}
 

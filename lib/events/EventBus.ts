@@ -74,6 +74,8 @@ export interface BusEventMap {
   "proposal:ready": { proposal: CopilotProposal };
   "proposal:applied": { estimateId: string };
   "proposal:discarded": { estimateId: string };
+  /** QS bấm "đo cột tròn" từ finding round-columns → bóc lại bản/vùng gần nhất + confirmRoundColumns. */
+  "takeoff:confirm-round-columns": Record<string, never>;
 
   // Review
   "review:findings": { findings: ReviewFinding[] };

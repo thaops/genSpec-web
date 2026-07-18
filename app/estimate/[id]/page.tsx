@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, CopilotProposal, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet, TakeoffCluster } from "@/lib/types";
 import { ClusterPicker } from "@/components/estimate/ClusterPicker";
+import { eventBus } from "@/lib/events/EventBus";
 import { api, ApiError, exportTHDT, exportTMDT, runTakeoffEngine, triggerDownload } from "@/lib/api";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { useAuth } from "@/lib/auth";
@@ -145,6 +146,11 @@ export default function EstimateEditorPage() {
   // Nhiều cụm bản vẽ chờ QS chọn (needsClusterPick) — giữ proposal + payload để bóc lại theo vùng.
   const [clusterPick, setClusterPick] = useState<{ proposal: CopilotProposal; payload: EngineTakeoffPayload } | null>(null);
   const [clusterPicking, setClusterPicking] = useState(false);
+  // Payload lần bóc gần nhất — để nút "đo cột tròn" (finding round-columns) bóc lại + confirm.
+  const lastTakeoffPayloadRef = useRef<EngineTakeoffPayload | null>(null);
+  // Ref luôn trỏ handler mới nhất (tránh stale closure khi subscribe 1 lần lúc mount).
+  const confirmRoundRef = useRef<() => void>(() => {});
+  useEffect(() => eventBus.on("takeoff:confirm-round-columns", () => confirmRoundRef.current()), []);
   const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
   // Cells the AI just edited — key `${sheetId}:${CELL}` (uppercase A1)
   const [aiEdits, setAiEdits] = useState<Map<string, AiCellEdit>>(new Map());
@@ -707,6 +713,7 @@ export default function EstimateEditorPage() {
   // the chat as a pending ProposalCard; the user applies it (or "oke làm đi").
   async function handleEngineTakeoff(payload: EngineTakeoffPayload) {
     if (!estimate) return;
+    lastTakeoffPayloadRef.current = payload; // để "đo cột tròn" bóc lại đúng bản/vùng
     const sheetIds = await ensureQuantitySheet();
     setViewMode("drawing");
     setSplitMode(true);
@@ -818,6 +825,12 @@ export default function EstimateEditorPage() {
       setClusterPicking(false);
     }
   }
+
+  // Nút "Đo cột tròn" (finding round-columns) → bóc lại bản/vùng gần nhất + confirmRoundColumns.
+  confirmRoundRef.current = () => {
+    const p = lastTakeoffPayloadRef.current;
+    if (p) void handleEngineTakeoff({ ...p, confirmRoundColumns: true });
+  };
 
   // "⚡ Bóc toàn bộ dự án" — chạy engine tuần tự cho TỪNG bản vẽ ready (mỗi bản
   // theo bộ môn của nó), tất cả proposal áp thẳng vào cùng sheet Khối lượng.
