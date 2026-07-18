@@ -472,6 +472,13 @@ export type Action =
       formula?: string;
       note?: string;
       quantity?: number;
+      /** Đơn giá VNĐ — undefined khi thiếu giá (ô TRỐNG, KHÔNG phải 0). */
+      unitPrice?: number;
+      source?: string;
+      /** true = giá LLM ƯỚC LƯỢNG (Tier 5, không nguồn) — tô khác, phải kiểm chứng. */
+      estimated?: boolean;
+      /** true = giá đại diện họ mã (Tier 3.5): giá thật tỉnh nhưng chưa chốt biến thể. */
+      familyRep?: boolean;
     }
   | { type: "delete_takeoff"; id: string }
   | {
@@ -506,6 +513,22 @@ export interface CopilotStep {
 }
 
 // `event: proposal` — final proposal (NOT applied). FE shows preview → confirm.
+/** 1 cụm bản vẽ trong model space — BE trả khi cần user chọn cụm để bóc (needsClusterPick). */
+export interface TakeoffCluster {
+  /** 1-based, khớp thứ tự hiển thị. */
+  id: number;
+  /** Vùng bóc (world coords) — gửi lại làm `region` để bóc đúng cụm này. */
+  region: { x: number; y: number; w: number; h: number };
+  count: number;
+  byType: Record<string, number>;
+  widthM: number;
+  heightM: number;
+  /** Mô tả thành phần đo được (không kết luận "mặt bằng tầng mấy"). */
+  hint: string;
+  /** Khối lượng nếu bóc riêng cụm này (hình học thuần, chưa tra mã/giá). */
+  lines: { name: string; unit: string; quantity: number }[];
+}
+
 export interface CopilotProposal {
   thinking: string[];
   message: string;
@@ -515,6 +538,11 @@ export interface CopilotProposal {
   preview: ProposalPreview;
   validation: ValidationReport; // AI self-check on the prospective state
   trace: TraceItem[]; // auditable derivation per BOQ line (prospective state)
+  /** BE phát hiện nhiều cụm bản vẽ → CHƯA ghi gì, chờ user chọn cụm (actions rỗng). */
+  needsClusterPick?: boolean;
+  clusters?: TakeoffCluster[];
+  clusterCount?: number;
+  spanM?: number;
 }
 
 export interface ApplyActionsResponse {

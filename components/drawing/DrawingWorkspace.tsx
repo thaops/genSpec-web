@@ -118,6 +118,8 @@ export interface EngineTakeoffPayload {
   rejectedObjectIds: string[];
   /** Vùng bóc user kéo chọn (world coords) — BE chỉ đo đối tượng có tâm trong vùng */
   region?: ScopeRect;
+  /** QS xác nhận vòng tròn ambiguous là cột tròn (từ cluster picker) → BE đo πr²×H. */
+  confirmRoundColumns?: boolean;
   /** Legacy LLM prompt — page falls back to runTask(fallbackPrompt) on engine error */
   fallbackPrompt: string;
 }

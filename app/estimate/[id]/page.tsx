@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet } from "@/lib/types";
+import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, CopilotProposal, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet, TakeoffCluster } from "@/lib/types";
+import { ClusterPicker } from "@/components/estimate/ClusterPicker";
 import { api, ApiError, exportTHDT, exportTMDT, runTakeoffEngine, triggerDownload } from "@/lib/api";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { useAuth } from "@/lib/auth";
@@ -141,6 +142,9 @@ export default function EstimateEditorPage() {
   const [agentWidth, setAgentWidth] = useState(380);
   // Floating pill mirroring the current silent agent task (⚡ takeoff, …)
   const [agentTask, setAgentTask] = useState<AgentTaskState | null>(null);
+  // Nhiều cụm bản vẽ chờ QS chọn (needsClusterPick) — giữ proposal + payload để bóc lại theo vùng.
+  const [clusterPick, setClusterPick] = useState<{ proposal: CopilotProposal; payload: EngineTakeoffPayload } | null>(null);
+  const [clusterPicking, setClusterPicking] = useState(false);
   const [workbookReinitKey, setWorkbookReinitKey] = useState(0);
   // Cells the AI just edited — key `${sheetId}:${CELL}` (uppercase A1)
   const [aiEdits, setAiEdits] = useState<Map<string, AiCellEdit>>(new Map());
@@ -738,7 +742,18 @@ export default function EstimateEditorPage() {
         rejectedObjectIds: payload.rejectedObjectIds,
         region: payload.region,
         discipline: drawings.find((d) => d.id === payload.drawingId)?.discipline,
+        editPermission: true, // ⚡ là hành động chỉnh sửa → bật tra/áp đơn giá
+        confirmRoundColumns: payload.confirmRoundColumns,
       });
+      // Nhiều cụm bản vẽ chưa chọn → BE trả actions rỗng + clusters. KHÔNG inject như
+      // proposal thường (sẽ thành "0 đề xuất" im lặng) — mở cluster picker để QS chọn cụm.
+      if (proposal.needsClusterPick && proposal.clusters?.length) {
+        stopWorking?.();
+        updateJob(job.id, { status: "done", progress: 100, message: `${proposal.clusters.length} cụm — chờ chọn`, durationMs: Date.now() - start });
+        setAgentTask({ label, step: `${proposal.clusters.length} cụm — chọn cụm để bóc`, status: "done" });
+        setClusterPick({ proposal, payload });
+        return;
+      }
       // injectProposal → applyProposal → driveActions: agent tự gõ text + tô màu
       // từng ô và tự chuyển sheet khi ghi sang sheet khác (cảm giác "đang làm").
       // KHÔNG chạy tour thủ công ở đây — nó sẽ giật active sheet khỏi chỗ agent
@@ -783,6 +798,24 @@ export default function EstimateEditorPage() {
           }),
         300
       );
+    }
+  }
+
+  // QS chọn 1 cụm trong cluster picker → bóc LẠI đúng cụm đó (region của cụm) + xác nhận cột
+  // tròn nếu QS tick. Đóng picker khi thành công (handleEngineTakeoff tự inject proposal).
+  async function handlePickCluster(cluster: TakeoffCluster, confirmRoundColumns: boolean) {
+    const pick = clusterPick;
+    if (!pick) return;
+    setClusterPicking(true);
+    try {
+      await handleEngineTakeoff({
+        ...pick.payload,
+        region: cluster.region,
+        confirmRoundColumns,
+      });
+      setClusterPick(null);
+    } finally {
+      setClusterPicking(false);
     }
   }
 
@@ -832,6 +865,7 @@ export default function EstimateEditorPage() {
     let doneCount = 0;
     let totalActions = 0;
     const errors: string[] = [];
+    const needsPick: string[] = [];
     for (let i = 0; i < sorted.length; i++) {
       const dr = sorted[i];
       const dl = discLabel[dr.discipline ?? "KHAC"] ?? dr.discipline;
@@ -843,7 +877,14 @@ export default function EstimateEditorPage() {
           unitsPerDrawingUnit: readCal(dr.id),
           assumptions: loadTakeoffAssumptions(dr.id) ?? DEFAULT_TAKEOFF_ASSUMPTIONS,
           discipline: dr.discipline,
+          editPermission: true,
         });
+        // Bản nhiều cụm KHÔNG auto-bóc được (không đoán cụm nào là mặt bằng) — bỏ qua, báo QS
+        // bóc riêng để chọn cụm. Thà thiếu còn hơn cộng dồn số vô nghĩa.
+        if (proposal.needsClusterPick) {
+          needsPick.push(`${dl} — ${dr.name} (${proposal.clusterCount ?? proposal.clusters?.length ?? "?"} cụm)`);
+          continue;
+        }
         const applied = await apply(proposal.actions);
         if (applied) {
           totalActions += proposal.actions.length;
@@ -854,7 +895,7 @@ export default function EstimateEditorPage() {
       }
     }
     stopWorking?.();
-    const summary = `${doneCount}/${sorted.length} bản vẽ · ${totalActions} thay đổi${errors.length ? ` · ${errors.length} lỗi` : ""}`;
+    const summary = `${doneCount}/${sorted.length} bản vẽ · ${totalActions} thay đổi${needsPick.length ? ` · ${needsPick.length} bản cần chọn cụm` : ""}${errors.length ? ` · ${errors.length} lỗi` : ""}`;
     updateJob(job.id, {
       status: errors.length && doneCount === 0 ? "failed" : "done",
       progress: 100,
@@ -863,6 +904,7 @@ export default function EstimateEditorPage() {
     });
     setAgentTask({ label, step: `Hoàn tất — ${summary}`, status: errors.length && doneCount === 0 ? "error" : "done" });
     if (errors.length) toast.error("Một số bản vẽ bóc lỗi", errors.join("; "));
+    else if (needsPick.length) toast.info("Có bản cần chọn cụm", `${needsPick.join("; ")} — mở từng bản, bấm ⚡ để chọn cụm.`);
     else toast.success("Đã bóc toàn bộ dự án", summary);
   }
 
@@ -1218,6 +1260,16 @@ export default function EstimateEditorPage() {
           }
         />
       </div>
+      {clusterPick && (
+        <ClusterPicker
+          clusters={clusterPick.proposal.clusters ?? []}
+          spanM={clusterPick.proposal.spanM}
+          discipline={drawings.find((d) => d.id === clusterPick.payload.drawingId)?.discipline}
+          busy={clusterPicking}
+          onCancel={() => setClusterPick(null)}
+          onPick={handlePickCluster}
+        />
+      )}
     </div>
   );
 }

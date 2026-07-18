@@ -848,6 +848,10 @@ export interface TakeoffEngineBody {
   region?: { x: number; y: number; w: number; h: number };
   /** Bộ môn bản vẽ — tuỳ chọn; BE tự đọc từ drawing doc là chuẩn. */
   discipline?: string;
+  /** Bật gán mã phổ thông + tra/ước lượng đơn giá (⚡ là hành động chỉnh sửa). */
+  editPermission?: boolean;
+  /** QS xác nhận vòng tròn ambiguous là cột tròn → BE đo πr²×H. */
+  confirmRoundColumns?: boolean;
 }
 
 export function runTakeoffEngine(

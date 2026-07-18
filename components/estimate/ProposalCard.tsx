@@ -91,6 +91,21 @@ export function ProposalCard({
 
   // Tín hiệu trust giữ Ở SUMMARY (không ẩn): giá toàn bộ là AI ước lượng.
   const allAiSources = sources.length > 0 && sources.every((s) => classifySource(s) === "ai");
+
+  // Nguồn giá PER-DÒNG (triết lý: số nào cũng đi kèm nguồn) — tổng hợp từ actions.
+  // official = có mã + giá không ước lượng/đại diện; familyRep = giá đại diện họ mã (chưa
+  // chốt biến thể); estimated = LLM ước lượng; missing = chưa có giá (ô trống).
+  const priceProvenance = (() => {
+    let official = 0, family = 0, est = 0, missing = 0;
+    for (const a of proposal.actions ?? []) {
+      if (a.type !== "upsert_takeoff") continue;
+      if (a.estimated) est++;
+      else if (a.familyRep) family++;
+      else if (a.unitPrice != null) official++;
+      else missing++;
+    }
+    return { official, family, est, missing, total: official + family + est + missing };
+  })();
   const hasDetail =
     (proposal.thinking?.length ?? 0) > 0 ||
     !!proposal.validation ||
@@ -165,8 +180,35 @@ export function ProposalCard({
           </div>
         )}
 
+        {/* NGUỒN GIÁ per-dòng — summary-first, mỗi số kèm nguồn (chips màu theo độ tin cậy). */}
+        {priceProvenance.total > 0 && (priceProvenance.family + priceProvenance.est + priceProvenance.missing) > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="uppercase tracking-wide text-zinc-500">Đơn giá:</span>
+            {priceProvenance.official > 0 && (
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-px text-emerald-300">
+                {priceProvenance.official} chính thống
+              </span>
+            )}
+            {priceProvenance.family > 0 && (
+              <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-px text-sky-300">
+                {priceProvenance.family} đại diện họ mã — chọn biến thể
+              </span>
+            )}
+            {priceProvenance.est > 0 && (
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-px text-amber-300">
+                {priceProvenance.est} ước lượng — cần kiểm chứng
+              </span>
+            )}
+            {priceProvenance.missing > 0 && (
+              <span className="rounded-full border border-zinc-700 bg-zinc-800/60 px-2 py-px text-zinc-400">
+                {priceProvenance.missing} chưa có giá
+              </span>
+            )}
+          </div>
+        )}
+
         {/* TRUST — estimated CẢNH BÁO (grounded im lặng). Giữ ở summary, KHÔNG ẩn. */}
-        {allAiSources && (
+        {allAiSources && priceProvenance.total === 0 && (
           <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
             ⚠ Giá là AI ước lượng — cần kiểm chứng
           </p>
