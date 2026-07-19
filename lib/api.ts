@@ -852,6 +852,8 @@ export interface TakeoffEngineBody {
   editPermission?: boolean;
   /** QS xác nhận vòng tròn ambiguous là cột tròn → BE đo πr²×H. */
   confirmRoundColumns?: boolean;
+  /** Nhãn vùng/cụm ("Cụm 1", "Tầng 1"…) → hiện cột "Khu vực" trong sheet, phân biệt các vùng. */
+  regionLabel?: string;
 }
 
 export function runTakeoffEngine(

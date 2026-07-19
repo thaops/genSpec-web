@@ -145,7 +145,8 @@ export default function EstimateEditorPage() {
   const [agentTask, setAgentTask] = useState<AgentTaskState | null>(null);
   // Nhiều cụm bản vẽ chờ QS chọn (needsClusterPick) — giữ proposal + payload để bóc lại theo vùng.
   const [clusterPick, setClusterPick] = useState<{ proposal: CopilotProposal; payload: EngineTakeoffPayload } | null>(null);
-  const [clusterPicking, setClusterPicking] = useState(false);
+  const [clusterBusyId, setClusterBusyId] = useState<number | null>(null);
+  const [clusterPicked, setClusterPicked] = useState<Set<number>>(new Set());
   // Payload lần bóc gần nhất — để nút "đo cột tròn" (finding round-columns) bóc lại + confirm.
   const lastTakeoffPayloadRef = useRef<EngineTakeoffPayload | null>(null);
   // Ref luôn trỏ handler mới nhất (tránh stale closure khi subscribe 1 lần lúc mount).
@@ -751,6 +752,7 @@ export default function EstimateEditorPage() {
         discipline: drawings.find((d) => d.id === payload.drawingId)?.discipline,
         editPermission: true, // ⚡ là hành động chỉnh sửa → bật tra/áp đơn giá
         confirmRoundColumns: payload.confirmRoundColumns,
+        regionLabel: payload.regionLabel,
       });
       // Nhiều cụm bản vẽ chưa chọn → BE trả actions rỗng + clusters. KHÔNG inject như
       // proposal thường (sẽ thành "0 đề xuất" im lặng) — mở cluster picker để QS chọn cụm.
@@ -758,6 +760,7 @@ export default function EstimateEditorPage() {
         stopWorking?.();
         updateJob(job.id, { status: "done", progress: 100, message: `${proposal.clusters.length} cụm — chờ chọn`, durationMs: Date.now() - start });
         setAgentTask({ label, step: `${proposal.clusters.length} cụm — chọn cụm để bóc`, status: "done" });
+        setClusterPicked(new Set()); // phiên chọn mới
         setClusterPick({ proposal, payload });
         return;
       }
@@ -808,22 +811,37 @@ export default function EstimateEditorPage() {
     }
   }
 
-  // QS chọn 1 cụm trong cluster picker → bóc LẠI đúng cụm đó (region của cụm) + xác nhận cột
-  // tròn nếu QS tick. Đóng picker khi thành công (handleEngineTakeoff tự inject proposal).
-  async function handlePickCluster(cluster: TakeoffCluster, confirmRoundColumns: boolean) {
+  // QS bóc 1 cụm → bóc đúng vùng cụm đó (region) + nhãn "Cụm N". KHÔNG đóng picker: bóc tiếp
+  // các cụm khác sẽ CỘNG DỒN (BE scope theo vùng). editPermission ON → proposal tự apply.
+  async function bocCluster(cluster: TakeoffCluster, confirmRoundColumns: boolean) {
     const pick = clusterPick;
     if (!pick) return;
-    setClusterPicking(true);
+    setClusterBusyId(cluster.id);
     try {
       await handleEngineTakeoff({
         ...pick.payload,
         region: cluster.region,
         confirmRoundColumns,
+        regionLabel: `Cụm ${cluster.id}`,
       });
-      setClusterPick(null);
+      setClusterPicked((s) => new Set(s).add(cluster.id));
     } finally {
-      setClusterPicking(false);
+      setClusterBusyId(null);
     }
+  }
+
+  // Bóc nhiều cụm tuần tự (cộng dồn). "Bóc chọn" / "Bóc tất cả".
+  async function bocClustersMany(clusters: TakeoffCluster[], confirmRoundColumns: boolean) {
+    for (const c of clusters) {
+      // eslint-disable-next-line no-await-in-loop
+      await bocCluster(c, confirmRoundColumns);
+    }
+  }
+
+  function closeClusterPicker() {
+    setClusterPick(null);
+    setClusterPicked(new Set());
+    setClusterBusyId(null);
   }
 
   // Nút "Đo cột tròn" (finding round-columns) → bóc lại bản/vùng gần nhất + confirmRoundColumns.
@@ -1278,9 +1296,11 @@ export default function EstimateEditorPage() {
           clusters={clusterPick.proposal.clusters ?? []}
           spanM={clusterPick.proposal.spanM}
           discipline={drawings.find((d) => d.id === clusterPick.payload.drawingId)?.discipline}
-          busy={clusterPicking}
-          onCancel={() => setClusterPick(null)}
-          onPick={handlePickCluster}
+          picked={clusterPicked}
+          busyId={clusterBusyId}
+          onPick={bocCluster}
+          onPickMany={bocClustersMany}
+          onClose={closeClusterPicker}
         />
       )}
     </div>

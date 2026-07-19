@@ -120,6 +120,8 @@ export interface EngineTakeoffPayload {
   region?: ScopeRect;
   /** QS xác nhận vòng tròn ambiguous là cột tròn (từ cluster picker) → BE đo πr²×H. */
   confirmRoundColumns?: boolean;
+  /** Nhãn vùng ("Cụm 1"…) từ cluster picker → cột "Khu vực" trong sheet. */
+  regionLabel?: string;
   /** Legacy LLM prompt — page falls back to runTask(fallbackPrompt) on engine error */
   fallbackPrompt: string;
 }
