@@ -856,6 +856,22 @@ export interface TakeoffEngineBody {
   regionLabel?: string;
 }
 
+/** Bóc NHIỀU vùng cùng bản 1 call — BE loop + APPLY tuần tự (cộng dồn theo vùng). */
+export interface TakeoffEngineBatchBody {
+  drawingId: string;
+  unitsPerDrawingUnit: number;
+  assumptions: TakeoffEngineAssumptions;
+  regions: { region: { x: number; y: number; w: number; h: number }; regionLabel?: string; confirmRoundColumns?: boolean }[];
+  rejectedObjectIds?: string[];
+  discipline?: string;
+}
+export function runTakeoffEngineBatch(
+  estimateId: string,
+  body: TakeoffEngineBatchBody
+): Promise<CopilotProposal & { batchApplied: number; batchTotal: number }> {
+  return request(`/estimates/${estimateId}/takeoff-engine/batch`, { method: "POST", body });
+}
+
 export function runTakeoffEngine(
   estimateId: string,
   body: TakeoffEngineBody

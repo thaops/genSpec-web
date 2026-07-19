@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import type { Action, AgentTaskState, AppliedActionsRecord, BoqTraceToken, CopilotProposal, Drawing, DrawingFocusRequest, DrawingObject, Estimate, ReviewFinding, Sheet, TakeoffCluster } from "@/lib/types";
 import { ClusterPicker } from "@/components/estimate/ClusterPicker";
 import { eventBus } from "@/lib/events/EventBus";
-import { api, ApiError, exportTHDT, exportTMDT, runTakeoffEngine, triggerDownload } from "@/lib/api";
+import { api, ApiError, exportTHDT, exportTMDT, runTakeoffEngine, runTakeoffEngineBatch, triggerDownload } from "@/lib/api";
 import { addJob, updateJob } from "@/components/ui/JobCenter";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -830,11 +830,28 @@ export default function EstimateEditorPage() {
     }
   }
 
-  // Bóc nhiều cụm tuần tự (cộng dồn). "Bóc chọn" / "Bóc tất cả".
+  // Bóc nhiều cụm trong 1 call (BE loop + apply tuần tự, cộng dồn theo vùng). "Bóc chọn"/"Bóc tất cả".
   async function bocClustersMany(clusters: TakeoffCluster[], confirmRoundColumns: boolean) {
-    for (const c of clusters) {
-      // eslint-disable-next-line no-await-in-loop
-      await bocCluster(c, confirmRoundColumns);
+    const pick = clusterPick;
+    if (!pick || !estimate || clusters.length === 0) return;
+    setClusterBusyId(-1); // busy toàn bộ
+    try {
+      await runTakeoffEngineBatch(estimate.id, {
+        drawingId: pick.payload.drawingId,
+        unitsPerDrawingUnit: pick.payload.unitsPerDrawingUnit,
+        assumptions: pick.payload.assumptions,
+        rejectedObjectIds: pick.payload.rejectedObjectIds,
+        discipline: drawings.find((d) => d.id === pick.payload.drawingId)?.discipline,
+        regions: clusters.map((c) => ({ region: c.region, regionLabel: `Cụm ${c.id}`, confirmRoundColumns })),
+      });
+      // BE đã apply → đồng bộ estimate mới.
+      syncEstimate(await api.getEstimate(estimate.id));
+      setClusterPicked((s) => { const n = new Set(s); clusters.forEach((c) => n.add(c.id)); return n; });
+      toast.success("Đã bóc", `${clusters.length} cụm — cộng dồn vào bảng khối lượng`);
+    } catch (err) {
+      toast.error("Bóc nhiều cụm lỗi", (err as ApiError).message);
+    } finally {
+      setClusterBusyId(null);
     }
   }
 
