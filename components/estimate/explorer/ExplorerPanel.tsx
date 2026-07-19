@@ -101,6 +101,9 @@ export function ExplorerPanel({
     () => new Set<WorkspaceView>(["workbook", "drawing"])
   );
   const sheetsList = estimate.sheets ?? [];
+  // Tách sheet gốc user vs derived sheet do GenSpec sinh (Semantic Layer) → 2 nhóm hiển thị.
+  const userSheets = sheetsList.filter((s) => s.metadata?.origin !== "genspec");
+  const genspecSheets = sheetsList.filter((s) => s.metadata?.origin === "genspec");
 
   // Auto-open section when navigating to it
   useEffect(() => {
@@ -335,7 +338,7 @@ export function ExplorerPanel({
                 <div className="ml-[13px] mt-0.5 space-y-px border-l border-zinc-800/70 pl-1.5">
                   {item.id === "workbook" && (
                     <>
-                      {sheetsList.map((sheet) => (
+                      {userSheets.map((sheet) => (
                         <SheetItem
                           key={sheet.id}
                           sheet={sheet}
@@ -362,6 +365,34 @@ export function ExplorerPanel({
                         <Plus className="h-3 w-3 shrink-0" />
                         <span>New Sheet</span>
                       </button>
+
+                      {/* Nhóm GenSpec AI — derived sheets (read-only, sinh tự động, không sửa/xóa) */}
+                      {genspecSheets.length > 0 && (
+                        <div className="mt-1.5">
+                          <div className="flex h-5 items-center gap-1 px-2 text-[10px] font-semibold uppercase tracking-wide text-accent-500/80">
+                            <Brain className="h-3 w-3 shrink-0" />
+                            <span className="truncate">GenSpec AI</span>
+                            <span className="font-mono font-normal normal-case text-zinc-700">
+                              {genspecSheets.length}
+                            </span>
+                          </div>
+                          {genspecSheets.map((sheet) => {
+                            const isActive = viewMode === "workbook" && activeSheetId === sheet.id;
+                            return (
+                              <div
+                                key={sheet.id}
+                                className={cn(rowBase, isActive ? rowActive : rowIdle)}
+                                onClick={() => { onSheetSelect(sheet.id); onViewModeChange("workbook"); }}
+                                title={`${sheet.name} — sheet do GenSpec sinh, tự cập nhật, không sửa trực tiếp`}
+                              >
+                                {isActive && <ActiveBar />}
+                                <Brain className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-accent-500" : "text-accent-600/50")} />
+                                <span className="min-w-0 flex-1 truncate">{sheet.name}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </>
                   )}
 

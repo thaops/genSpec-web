@@ -544,7 +544,10 @@ export default function EstimateEditorPage() {
 
   async function handleDataChange(updatedSheets: Sheet[]) {
     setSaveState("saving");
-    const ok = await apply([{ type: "set_sheets", sheets: updatedSheets }]);
+    // Derived sheet (Semantic Layer, origin=genspec) là pure view sinh on-read — KHÔNG persist.
+    // Lọc trước khi gửi để không đè lên sheet gốc user và không lưu nhầm view vào DB.
+    const userSheets = updatedSheets.filter((s) => s.metadata?.origin !== "genspec");
+    const ok = await apply([{ type: "set_sheets", sheets: userSheets }]);
     setSaveState(ok ? "saved" : "dirty");
     if (!ok) toast.error(t("editor.saveFailed"));
   }
