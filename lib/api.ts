@@ -517,6 +517,8 @@ export const api = {
   getHomeFeed: () => request<OfficialFeedItem[]>("/home/feed"),
 
   // ---------- Export ----------
+  /** Xuất đúng Workbook đang mở (giữ nguyên style/formula/merge). */
+  exportXlsx: (id: string) => downloadBlob(`/estimates/${id}/export-xlsx`),
   exportF1: (id: string) => downloadBlob(`/estimates/${id}/export-f1`),
 
   // ---------- Drawings ----------

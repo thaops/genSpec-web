@@ -103,7 +103,7 @@ const vi = {
   },
   editor: {
     untitled: "Dự toán chưa đặt tên",
-    export: "Xuất F1",
+    export: "Xuất Excel",
     exporting: "Đang xuất…",
     exportFailed: "Xuất file thất bại",
     backToDashboard: "Về Bảng điều khiển",
@@ -541,7 +541,7 @@ const en = {
   },
   editor: {
     untitled: "Untitled estimate",
-    export: "Export F1",
+    export: "Export Excel",
     exporting: "Exporting…",
     exportFailed: "Export failed",
     backToDashboard: "Back to dashboard",

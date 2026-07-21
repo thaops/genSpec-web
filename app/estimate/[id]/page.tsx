@@ -405,7 +405,23 @@ export default function EstimateEditorPage() {
     }
   }
 
+  /** Xuất đúng Workbook đang mở — giữ nguyên style/formula/merge của user. */
   async function onExport() {
+    if (!estimate || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await api.exportXlsx(estimate.id);
+      const safe =
+        (estimate.name || "estimate").replace(/[^\w\-]+/g, "_") || "estimate";
+      triggerDownload(blob, `${safe}.xlsx`);
+    } catch (err) {
+      toast.error(t("editor.exportFailed"), (err as ApiError).message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function onExportF1() {
     if (!estimate || exporting) return;
     setExporting(true);
     try {
@@ -1172,6 +1188,7 @@ export default function EstimateEditorPage() {
         estimate={estimate}
         onRename={onRename}
         onExport={onExport}
+        onExportF1={onExportF1}
         onExportTHDT={onExportTHDT}
         onExportTMDT={onExportTMDT}
         exporting={exporting}

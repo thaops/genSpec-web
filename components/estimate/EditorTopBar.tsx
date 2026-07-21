@@ -16,6 +16,7 @@ interface Props {
   estimate: Estimate;
   onRename: (name: string) => void;
   onExport: () => void;
+  onExportF1?: () => void;
   onExportTHDT?: () => void;
   onExportTMDT?: () => void;
   exporting: boolean;
@@ -34,6 +35,7 @@ export function EditorTopBar({
   estimate,
   onRename,
   onExport,
+  onExportF1,
   onExportTHDT,
   onExportTMDT,
   exporting,
@@ -222,7 +224,7 @@ export function EditorTopBar({
               type="button"
               onClick={() => {
                 setExportMenuOpen(false);
-                onExport();
+                (onExportF1 ?? onExport)();
               }}
               className="block w-full px-3 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
             >
