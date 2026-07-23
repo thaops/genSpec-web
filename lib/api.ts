@@ -136,7 +136,7 @@ interface RequestOptions {
   auth?: boolean;
 }
 
-async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, form, auth = true } = opts;
   const headers: Record<string, string> = {};
 

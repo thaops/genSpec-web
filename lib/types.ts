@@ -1,13 +1,82 @@
 // Mirror of CONTRACT2.md — GenSpec v3 resource-based QS estimate (9 sheets).
 
 export type UserRole = "admin" | "user";
+export type UserStatus = "ACTIVE" | "DISABLED" | "BANNED" | "PENDING_EMAIL" | "DELETED";
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  status?: UserStatus;
+  lastLoginAt?: string;
   createdAt: string;
+}
+
+// ---------- Admin Portal ----------
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+  lastLoginAt?: string;
+  createdAt?: string;
+}
+
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AiUsageRow {
+  _id?: string;
+  requestId: string;
+  userId?: string;
+  estimateId?: string;
+  source: string;
+  mode?: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  latencyMs: number;
+  status: "success" | "error" | "timeout";
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export interface AiUsageSummary {
+  totals: { requests: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number };
+  bySource: { source: string; requests: number; totalTokens: number; costUsd: number }[];
+  topUsers: { userId: string; requests: number; totalTokens: number; costUsd: number }[];
+}
+
+export interface AuditLogRow {
+  _id?: string;
+  actorId: string;
+  actorEmail?: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  meta?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AdminDashboardSnapshot {
+  generatedAt: string;
+  users: { total: number; activeToday: number };
+  estimatesToday: number;
+  drawingsToday: number;
+  ai: AiUsageSummary;
+  crawl: { byStatus: Record<string, number> };
+  queue: { waiting?: number; active?: number; completed?: number; failed?: number; delayed?: number } | null;
+  storage: { storageBytes: number; bandwidthBytes: number; credits: number } | null;
 }
 
 export interface AuthResponse {
