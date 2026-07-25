@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
-import { saveSession, getStoredUser, getToken } from "@/lib/auth";
+import { saveSession, getToken } from "@/lib/auth";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { ShieldCheck, ArrowLeft } from "lucide-react";
@@ -16,9 +16,9 @@ export default function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Đã đăng nhập sẵn bằng tài khoản admin → vào portal luôn.
+  // Đã có session admin → vào portal luôn.
   useEffect(() => {
-    if (getToken() && getStoredUser()?.role === "admin") router.replace("/admin");
+    if (getToken("admin")) router.replace("/admin");
   }, [router]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -26,14 +26,10 @@ export default function AdminLoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await api.login({ email, password });
-      if (res.user.role !== "admin") {
-        // Không lưu session: cổng này chỉ dành cho admin.
-        setError("Tài khoản này không có quyền admin.");
-        setLoading(false);
-        return;
-      }
-      saveSession(res.accessToken, res.user);
+      // BE (`/auth/admin/login`) chỉ cấp token cho account role admin —
+      // FE không tự phán quyền, chỉ lưu vào session admin.
+      const res = await api.adminLogin({ email, password });
+      saveSession(res.accessToken, res.user, "admin");
       router.replace("/admin");
     } catch (err) {
       setError((err as ApiError).message);

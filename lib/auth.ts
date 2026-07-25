@@ -3,21 +3,32 @@
 import { useEffect, useState, useCallback } from "react";
 import type { User } from "./types";
 
-const TOKEN_KEY = "genspec_token";
-const USER_KEY = "genspec_user";
+/**
+ * Hai session ĐỘC LẬP, không dùng lẫn:
+ * - `app`   — workspace client, token cấp ở `/auth/login`
+ * - `admin` — admin portal, token cấp ở `/auth/admin/login`
+ * Đăng nhập/đăng xuất bên này không ảnh hưởng bên kia.
+ */
+export type AuthScope = "app" | "admin";
 
-export function getToken(): string | null {
+const KEYS: Record<AuthScope, { token: string; user: string }> = {
+  // Giữ nguyên key cũ của app → user đang đăng nhập không bị đăng xuất.
+  app: { token: "genspec_token", user: "genspec_user" },
+  admin: { token: "genspec_admin_token", user: "genspec_admin_user" },
+};
+
+export function getToken(scope: AuthScope = "app"): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  return window.localStorage.getItem(KEYS[scope].token);
 }
 
-export function setToken(token: string) {
-  window.localStorage.setItem(TOKEN_KEY, token);
+export function setToken(token: string, scope: AuthScope = "app") {
+  window.localStorage.setItem(KEYS[scope].token, token);
 }
 
-export function getStoredUser(): User | null {
+export function getStoredUser(scope: AuthScope = "app"): User | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(USER_KEY);
+  const raw = window.localStorage.getItem(KEYS[scope].user);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as User;
@@ -26,30 +37,31 @@ export function getStoredUser(): User | null {
   }
 }
 
-export function setStoredUser(user: User) {
-  window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+export function setStoredUser(user: User, scope: AuthScope = "app") {
+  window.localStorage.setItem(KEYS[scope].user, JSON.stringify(user));
 }
 
-export function clearAuth() {
-  window.localStorage.removeItem(TOKEN_KEY);
-  window.localStorage.removeItem(USER_KEY);
+export function clearAuth(scope: AuthScope = "app") {
+  window.localStorage.removeItem(KEYS[scope].token);
+  window.localStorage.removeItem(KEYS[scope].user);
 }
 
-// Notify subscribers (same-tab) when auth changes.
-const listeners = new Set<() => void>();
-function emitAuthChange() {
-  listeners.forEach((l) => l());
+// Notify subscribers (same-tab) when auth changes — tách theo scope để
+// login admin không ép app re-render và ngược lại.
+const listeners: Record<AuthScope, Set<() => void>> = { app: new Set(), admin: new Set() };
+function emitAuthChange(scope: AuthScope) {
+  listeners[scope].forEach((l) => l());
 }
 
-export function saveSession(token: string, user: User) {
-  setToken(token);
-  setStoredUser(user);
-  emitAuthChange();
+export function saveSession(token: string, user: User, scope: AuthScope = "app") {
+  setToken(token, scope);
+  setStoredUser(user, scope);
+  emitAuthChange(scope);
 }
 
-export function logout() {
-  clearAuth();
-  emitAuthChange();
+export function logout(scope: AuthScope = "app") {
+  clearAuth(scope);
+  emitAuthChange(scope);
 }
 
 export interface UseAuth {
@@ -60,15 +72,15 @@ export interface UseAuth {
   signOut: () => void;
 }
 
-export function useAuth(): UseAuth {
+function useScopedAuth(scope: AuthScope): UseAuth {
   const [user, setUser] = useState<User | null>(null);
   const [token, setTok] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   const refresh = useCallback(() => {
-    setUser(getStoredUser());
-    setTok(getToken());
-  }, []);
+    setUser(getStoredUser(scope));
+    setTok(getToken(scope));
+  }, [scope]);
 
   useEffect(() => {
     const listener = () => refresh();
@@ -76,17 +88,17 @@ export function useAuth(): UseAuth {
     listener();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(true);
-    listeners.add(listener);
+    listeners[scope].add(listener);
     window.addEventListener("storage", listener);
     return () => {
-      listeners.delete(listener);
+      listeners[scope].delete(listener);
       window.removeEventListener("storage", listener);
     };
-  }, [refresh]);
+  }, [refresh, scope]);
 
   const signOut = useCallback(() => {
-    logout();
-  }, []);
+    logout(scope);
+  }, [scope]);
 
   return {
     user,
@@ -95,4 +107,14 @@ export function useAuth(): UseAuth {
     isAuthenticated: !!token,
     signOut,
   };
+}
+
+/** Session workspace client. */
+export function useAuth(): UseAuth {
+  return useScopedAuth("app");
+}
+
+/** Session admin portal — hoàn toàn tách khỏi session client. */
+export function useAdminAuth(): UseAuth {
+  return useScopedAuth("admin");
 }

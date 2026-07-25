@@ -1,4 +1,5 @@
 import { getToken } from "./auth";
+import type { AuthScope } from "./auth";
 import type {
   AuthResponse,
   User,
@@ -22,6 +23,8 @@ import type {
   RevisionDiff,
   AppNotification,
   BackgroundJob,
+  Entitlement,
+  QuotaSnapshot,
 } from "./types";
 
 export const API_URL =
@@ -134,14 +137,16 @@ interface RequestOptions {
   // when set, body is sent as-is (e.g. FormData) without JSON headers
   form?: FormData;
   auth?: boolean;
+  /** Session nào ký request. Mặc định `app`; admin-api truyền `admin`. */
+  scope?: AuthScope;
 }
 
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, form, auth = true } = opts;
+  const { method = "GET", body, form, auth = true, scope = "app" } = opts;
   const headers: Record<string, string> = {};
 
   if (auth) {
-    const token = getToken();
+    const token = getToken(scope);
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -168,7 +173,8 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   if (res.status === 401 && auth) {
     if (typeof window !== "undefined") {
       const { logout } = await import("./auth");
-      logout();
+      // Chỉ đăng xuất ĐÚNG session vừa gọi — 401 ở admin không được đá session client.
+      logout(scope);
     }
   }
 
@@ -309,7 +315,7 @@ async function copilotStream(
   if (res.status === 401) {
     if (typeof window !== "undefined") {
       const { logout } = await import("./auth");
-      logout();
+      logout("app"); // copilot stream luôn thuộc session workspace
     }
   }
 
@@ -387,6 +393,22 @@ export const api = {
       auth: false,
     }),
 
+  // ---------- Entitlement / Quota ----------
+
+  /** Quyền + giới hạn của gói hiện tại. Dùng để ẩn/disable UI — KHÔNG phải bảo mật. */
+  myEntitlements: () => request<Entitlement>("/me/entitlements"),
+
+  /** used/limit từng cửa sổ quota + thời điểm reset. */
+  myQuota: () => request<QuotaSnapshot>("/me/quota"),
+
+  /** Cổng admin — BE chỉ cấp token cho account role admin. */
+  adminLogin: (data: { email: string; password: string }) =>
+    request<AuthResponse>("/auth/admin/login", {
+      method: "POST",
+      body: data,
+      auth: false,
+    }),
+
   me: () => request<User>("/auth/me"),
 
   // ---------- Estimates ----------
@@ -455,7 +477,7 @@ export const api = {
   // ---------- Import ----------
   importExcel: async (id: string, file: File): Promise<Estimate> => {
     const headers: Record<string, string> = {};
-    const token = getToken();
+    const token = getToken("app");
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const form = new FormData();
     form.append("file", file);
@@ -532,7 +554,7 @@ export const api = {
 
   uploadDrawing: async (estimateId: string, file: File): Promise<Drawing> => {
     const headers: Record<string, string> = {};
-    const token = getToken();
+    const token = getToken("app");
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const form = new FormData();
     form.append("file", file);

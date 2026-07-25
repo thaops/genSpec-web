@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect, useState } from "react";
 import { adminApi } from "@/lib/admin-api";
 import type { AdminUser, UserStatus } from "@/lib/types";
@@ -47,27 +49,8 @@ export default function AdminUsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  async function toggleStatus(u: AdminUser) {
-    const next: UserStatus = u.status === "ACTIVE" ? "DISABLED" : "ACTIVE";
-    try {
-      await adminApi.updateUserStatus(u.id, next);
-      toast.success(`Đã ${next === "ACTIVE" ? "kích hoạt" : "vô hiệu hoá"} ${u.email}`);
-      load();
-    } catch (err: any) {
-      toast.error("Không cập nhật được", err.message);
-    }
-  }
-
-  async function toggleRole(u: AdminUser) {
-    const next = u.role === "admin" ? "user" : "admin";
-    try {
-      await adminApi.updateUserRole(u.id, next);
-      toast.success(`Đã đổi role ${u.email} → ${next}`);
-      load();
-    } catch (err: any) {
-      toast.error("Không đổi được role", err.message);
-    }
-  }
+  // Đổi role/status ĐÃ CHUYỂN sang trang chi tiết: BE bắt buộc `reason` cho
+  // mọi hành động nặng, nên không còn toggle 1 cú bấm không lý do ở đây.
 
   const columns: Column<AdminUser>[] = [
     { key: "name", header: "Tên", render: (u) => <span className="font-medium text-zinc-200">{u.name}</span> },
@@ -92,13 +75,12 @@ export default function AdminUsersPage() {
       header: "",
       className: "text-right",
       render: (u) => (
-        <div className="flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={() => toggleRole(u)}>
-            {u.role === "admin" ? "Bỏ admin" : "Cấp admin"}
-          </Button>
-          <Button size="sm" variant={u.status === "ACTIVE" ? "danger" : "secondary"} onClick={() => toggleStatus(u)}>
-            {u.status === "ACTIVE" ? "Disable" : "Enable"}
-          </Button>
+        <div className="flex justify-end">
+          <Link href={`/admin/users/${u.id}`}>
+            <Button size="sm" variant="outline">
+              Quản lý
+            </Button>
+          </Link>
         </div>
       ),
     },

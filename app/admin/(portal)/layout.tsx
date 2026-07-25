@@ -3,20 +3,21 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { useAuth } from "@/lib/auth";
+import { useAdminAuth } from "@/lib/auth";
 import { Spinner } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Users, Cpu, ScrollText, ArrowLeft, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Cpu, ScrollText, ArrowLeft, LogOut, Package } from "lucide-react";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/plans", label: "Gói dịch vụ", icon: Package },
   { href: "/admin/ai-usage", label: "AI Usage", icon: Cpu },
   { href: "/admin/audit-logs", label: "Audit Log", icon: ScrollText },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, ready, isAuthenticated, signOut } = useAuth();
+  const { user, ready, isAuthenticated, signOut } = useAdminAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -63,8 +64,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           })}
         </nav>
         <div className="space-y-1 border-t border-zinc-800 px-2 pt-3">
+          {/* Tab mới: workspace là session khác, không nên rời portal. */}
           <Link
             href="/"
+            target="_blank"
             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
           >
             <ArrowLeft className="h-4 w-4 shrink-0" />

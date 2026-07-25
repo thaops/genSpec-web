@@ -1,6 +1,6 @@
 // Mirror of CONTRACT2.md — GenSpec v3 resource-based QS estimate (9 sheets).
 
-export type UserRole = "admin" | "user";
+export type UserRole = "super_admin" | "admin" | "user";
 export type UserStatus = "ACTIVE" | "DISABLED" | "BANNED" | "PENDING_EMAIL" | "DELETED";
 
 export interface User {
@@ -1326,4 +1326,166 @@ export interface AgentTaskState {
   step: string;
   status: "running" | "done" | "error";
   proposalMsgId?: string;
+}
+
+// ---------- Account & Subscription Platform ----------
+
+export type QuotaWindow = "hour" | "4h" | "day" | "week" | "month";
+
+export type SubscriptionStatus =
+  | "TRIAL"
+  | "ACTIVE"
+  | "EXPIRED"
+  | "CANCELLED"
+  | "SUSPENDED"
+  | "LIFETIME";
+
+export interface QuotaRule {
+  metric: string;
+  window: QuotaWindow;
+  /** null = unlimited */
+  limit: number | null;
+}
+
+/** null = unlimited; key vắng mặt = 0 = cấm. */
+export type PlanLimits = Partial<Record<
+  | "project.count"
+  | "workbook.count"
+  | "drawing.count"
+  | "storage.bytes"
+  | "upload.maxBytes"
+  | "seat.count",
+  number | null
+>>;
+
+export interface Entitlement {
+  userId: string | null;
+  planId: string | null;
+  planSlug: string;
+  planName: string;
+  subscriptionStatus: SubscriptionStatus | "GUEST";
+  effectiveUntil: string | null;
+  features: string[];
+  limits: PlanLimits;
+  quotas: QuotaRule[];
+  aiModels: string[] | null;
+  denyAll: boolean;
+  reason?: string;
+}
+
+export interface QuotaStateItem {
+  metric: string;
+  window: QuotaWindow;
+  limit: number | null;
+  used: number;
+  adjusted: number;
+  remaining: number | null;
+  resetAt: string;
+}
+
+export interface QuotaSnapshot {
+  planSlug: string;
+  planName: string;
+  subscriptionStatus: SubscriptionStatus | "GUEST";
+  effectiveUntil: string | null;
+  items: QuotaStateItem[];
+}
+
+// ---------- Admin: plans / subscription / quota ----------
+
+export interface PlanPrice {
+  amount: number;
+  currency: "VND" | "USD";
+  interval: "month" | "year" | "lifetime" | "free";
+}
+
+export interface Plan {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string;
+  isSystem: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  price: PlanPrice;
+  trialDays: number | null;
+  features: string[];
+  limits: PlanLimits;
+  quotas: QuotaRule[];
+  aiModels: string[] | null;
+  subscriberCount?: number;
+}
+
+export interface PermissionDef {
+  key: string;
+  group: string;
+  label: string;
+  adminOnly?: boolean;
+}
+
+/** Từ vựng hợp lệ do BE cấp — FE không hardcode danh sách nào. */
+export interface AdminVocabulary {
+  permissions: PermissionDef[];
+  limitKeys: string[];
+  quotaMetrics: string[];
+  quotaWindows: QuotaWindow[];
+  subscriptionStatuses: SubscriptionStatus[];
+}
+
+export interface SubscriptionHistoryEntry {
+  at: string;
+  action: string;
+  fromPlanId?: string;
+  toPlanId?: string;
+  byAdminId?: string;
+  reason?: string;
+  source?: "admin" | "payment" | "system" | "migration";
+  externalRef?: string;
+}
+
+export interface AdminSubscription {
+  planId: string;
+  planSlug: string;
+  planName?: string;
+  status: SubscriptionStatus;
+  startAt: string;
+  endAt: string | null;
+  trialEndAt: string | null;
+  autoRenew: boolean;
+  overrides: {
+    limits?: PlanLimits;
+    quotas?: QuotaRule[];
+    features?: { grant?: string[]; revoke?: string[] };
+  };
+  history: SubscriptionHistoryEntry[];
+}
+
+export interface QuotaAdjustmentRow {
+  _id: string;
+  metric: string;
+  window: QuotaWindow | null;
+  delta: number;
+  kind: "grant" | "deduct" | "reset";
+  byAdminId: string;
+  reason: string;
+  createdAt?: string;
+}
+
+export interface AdminUserDetail {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+    status: UserStatus;
+    lastLoginAt?: string;
+    mustChangePassword: boolean;
+    tokenVersion: number;
+    createdAt?: string;
+  };
+  subscription: AdminSubscription | null;
+  entitlement: Entitlement;
+  quota: QuotaStateItem[];
+  aiUsage: AiUsageSummary;
+  quotaAdjustments: QuotaAdjustmentRow[];
 }
