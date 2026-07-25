@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { Spinner } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Users, Cpu, ScrollText, ArrowLeft } from "lucide-react";
+import { LayoutDashboard, Users, Cpu, ScrollText, ArrowLeft, LogOut } from "lucide-react";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -16,14 +16,14 @@ const NAV = [
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, ready, isAuthenticated } = useAuth();
+  const { user, ready, isAuthenticated, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
     if (!ready) return;
     if (!isAuthenticated || user?.role !== "admin") {
-      router.replace("/");
+      router.replace("/admin/login");
     }
   }, [ready, isAuthenticated, user, router]);
 
@@ -62,7 +62,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             );
           })}
         </nav>
-        <div className="border-t border-zinc-800 px-2 pt-3">
+        <div className="space-y-1 border-t border-zinc-800 px-2 pt-3">
           <Link
             href="/"
             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
@@ -70,6 +70,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <ArrowLeft className="h-4 w-4 shrink-0" />
             Về workspace
           </Link>
+          <button
+            type="button"
+            onClick={() => {
+              signOut();
+              router.replace("/admin/login");
+            }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-rose-300"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            Đăng xuất
+          </button>
         </div>
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
