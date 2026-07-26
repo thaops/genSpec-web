@@ -552,7 +552,60 @@ export const api = {
       `/estimates/${estimateId}/drawings/${drawingId}`
     ),
 
-  uploadDrawing: async (estimateId: string, file: File): Promise<Drawing> => {
+  /**
+   * Upload bản vẽ.
+   *
+   * Với file tài liệu (DWG/DXF/PDF) thử **upload trực tiếp lên R2** trước:
+   * presign → PUT thẳng lên storage → confirm. Byte không đi qua API nên file
+   * vài trăm MB không còn nghẽn ở RAM server.
+   *
+   * Rơi về multipart qua API khi: presign trả 400 (R2 chưa cấu hình / file là
+   * ảnh), hoặc PUT lên R2 fail (thường là **thiếu CORS policy** trên bucket).
+   * Không rơi về khi lỗi là 403/413 — đó là quyết định của server, phải hiện cho
+   * user chứ không thử lại đường khác.
+   */
+  uploadDrawing: async (
+    estimateId: string,
+    file: File,
+    opts?: { onProgress?: (phase: "presign" | "uploading" | "confirm") => void },
+  ): Promise<Drawing> => {
+    try {
+      opts?.onProgress?.("presign");
+      const presigned = await request<{
+        uploadUrl: string;
+        locator: string;
+        contentType: string;
+        expiresIn: number;
+      }>(`/estimates/${estimateId}/drawings/presign`, {
+        method: "POST",
+        body: { fileName: file.name, contentType: file.type, declaredBytes: file.size },
+      });
+
+      opts?.onProgress?.("uploading");
+      const put = await fetch(presigned.uploadUrl, {
+        method: "PUT",
+        // Header phải khớp contentType đã ký, lệch là R2 từ chối chữ ký.
+        headers: { "Content-Type": presigned.contentType },
+        body: file,
+      });
+      if (!put.ok) throw new ApiError(`R2 PUT failed (${put.status})`, put.status);
+
+      opts?.onProgress?.("confirm");
+      return await request<Drawing>(`/estimates/${estimateId}/drawings/confirm`, {
+        method: "POST",
+        body: { locator: presigned.locator, name: file.name },
+      });
+    } catch (err) {
+      const code = (err as ApiError)?.statusCode;
+      // 403 = gói không cho phép; 413 = vượt hạn mức → không được lách bằng đường khác.
+      if (code === 403 || code === 413) throw err;
+      // Còn lại: thử đường multipart cũ.
+      return api.uploadDrawingViaApi(estimateId, file);
+    }
+  },
+
+  /** Đường cũ: multipart qua API. Giữ làm fallback và cho ảnh (đi Cloudinary). */
+  uploadDrawingViaApi: async (estimateId: string, file: File): Promise<Drawing> => {
     const headers: Record<string, string> = {};
     const token = getToken("app");
     if (token) headers["Authorization"] = `Bearer ${token}`;
